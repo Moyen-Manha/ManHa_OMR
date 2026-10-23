@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="bn"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>OMR রিডার</title><link rel="manifest" href="manifest.webmanifest"><meta name="theme-color" content="#0f766e">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--tx:#14181f;--mut:#667085;--pri:#0f766e;--ok:#16a34a;--bad:#dc2626;--warn:#d97706;--bd:#e4e7ec}
+@media(prefers-color-scheme:dark){:root{--bg:#0e1116;--card:#171b22;--tx:#eef1f5;--mut:#98a2b3;--bd:#2a313c}}
+*{box-sizing:border-box}[hidden]{display:none!important}body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.5 system-ui,"Noto Sans Bengali","Kalpurush",sans-serif;padding:env(safe-area-inset-top) 0 calc(64px + env(safe-area-inset-bottom))}
+header{background:var(--pri);color:#fff;padding:12px 16px;font-weight:700;display:flex;justify-content:space-between}
+main{max-width:900px;margin:0 auto;padding:12px}.card{background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:14px;margin-bottom:12px}
+h2{margin:0 0 8px;font-size:1.05rem}textarea,input,select{width:100%;padding:10px;border:1px solid var(--bd);border-radius:10px;background:var(--bg);color:var(--tx);font:inherit}
+button,.btn{background:var(--pri);color:#fff;border:0;border-radius:10px;padding:10px 14px;font:inherit;font-weight:600;cursor:pointer;display:inline-block}button.sec{background:var(--bg);color:var(--tx);border:1px solid var(--bd)}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}.row>*{flex:1;min-width:120px}.mut{color:var(--mut);font-size:.9rem}
+nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:var(--card);border-top:1px solid var(--bd);padding-bottom:env(safe-area-inset-bottom)}
+nav button{flex:1;background:none;color:var(--mut);border-radius:0;padding:10px 4px;font-size:.85rem}nav button.on{color:var(--pri)}
+.view{display:none}.view.on{display:block}
+.cam{position:relative;background:#000;border-radius:12px;overflow:hidden}.cam video,.cam canvas{width:100%;display:block}.cam canvas{position:absolute;inset:0;height:100%}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;text-align:center}.stats b{display:block;font-size:1.4rem}
+canvas.sheet{width:100%;border-radius:10px;border:1px solid var(--bd)}
+table{width:100%;border-collapse:collapse}td,th{padding:4px 6px;border-bottom:1px solid var(--bd);text-align:center}td select{padding:4px;width:auto}
+.CORRECT{color:var(--ok)}.WRONG,.MULTIPLE{color:var(--bad)}.rev{background:rgba(217,119,6,.18)}
+.crops{display:flex;gap:8px;overflow-x:auto}.crops figure{margin:0;min-width:240px}.crops canvas{width:100%;border:1px solid var(--bd);border-radius:8px}
+#msg{position:sticky;top:0;z-index:5}.toast{background:var(--warn);color:#fff;padding:8px 12px;border-radius:10px;margin-bottom:8px}
+</style></head><body>
+<header><span>📝 OMR রিডার</span><span id="cvst" class="mut" style="color:#d1fae5">লোড হচ্ছে…</span></header>
+<main><div id="msg"></div>
+
+<section id="v-key" class="view on"><div class="card"><h2>১. সঠিক উত্তর</h2>
+<textarea id="keytxt" rows="5" placeholder="1-C, 2-D, 3-A, 4-B …  (ক/খ/গ/ঘ বা শুধু A,B,C,D,… ও চলবে)"></textarea>
+<div class="row"><label class="btn sec">📂 Excel/CSV আপলোড<input id="keyfile" type="file" accept=".xlsx,.xls,.csv" hidden></label><button id="keysave">সংরক্ষণ</button></div>
+<div id="keyinfo" class="mut"></div></div>
+<div class="card"><h2>শিক্ষার্থী তালিকা (ঐচ্ছিক)</h2><p class="mut">Excel/CSV: নাম, শ্রেণি, রোল, গ্রুপ — স্ক্যানের পর রোল মিলিয়ে নিজে তথ্য বসাবে।</p>
+<div class="row"><label class="btn sec">📋 তালিকা আপলোড<input id="stfile" type="file" accept=".xlsx,.xls,.csv" hidden></label><button class="sec" id="stclear">মুছুন</button></div><div id="stinfo" class="mut"></div></div></section>
+
+<section id="v-scan" class="view"><div class="card"><h2>২. স্ক্যান</h2>
+<div class="row"><button id="camon">📷 ক্যামেরা চালু</button><label class="btn sec">🖼️ ছবি নির্বাচন<input id="imgfile" type="file" accept="image/*" hidden></label></div>
+<div class="cam" id="camwrap" hidden><video id="vid" playsinline muted></video><canvas id="ov"></canvas></div>
+<div class="row" id="camctl" hidden><button id="snap">📸 এখনই তুলুন</button><button class="sec" id="camoff">বন্ধ করুন</button></div>
+<div id="scanst" class="mut">শিটটি ফ্রেমে ধরুন — কাগজ খুঁজে পেলে সবুজ ফ্রেম দেখাবে ও স্থির হলে নিজে ছবি তুলবে।</div></div></section>
+
+<section id="v-res" class="view"><div id="resempty" class="card mut">আগে একটি শিট স্ক্যান করুন।</div><div id="resbody" hidden>
+<div class="card"><div class="stats"><div><b id="s-m"></b>নম্বর</div><div><b id="s-ok" class="CORRECT"></b>সঠিক</div><div><b id="s-bad" class="WRONG"></b>ভুল</div><div><b id="s-bl"></b>ফাঁকা</div></div></div>
+<div class="card"><h2>পরীক্ষার্থী</h2><select id="stpick"><option value="">— তালিকা থেকে শিক্ষার্থী বাছুন —</option></select>
+<div class="row"><input id="i-name" placeholder="নাম"><input id="i-class" placeholder="শ্রেণি"><input id="i-roll" placeholder="রোল"><input id="i-dept" placeholder="গ্রুপ"></div><div id="rollhint" class="mut"></div>
+<button id="xl">⬇️ Excel ডাউনলোড</button></div>
+<div class="card" id="revbox" hidden><h2>⚠️ যাচাই দরকার</h2><div id="crops" class="crops"></div></div>
+<div class="card"><h2>শিট (সবুজ=সঠিক, লাল=ভুল)</h2>
+<div class="row"><button class="sec" id="movebtn">↔️ গ্রিড সরান: বন্ধ</button><button class="sec" id="resetgrid">গ্রিড রিসেট</button></div>
+<div id="canhint" class="mut">👆 কোনো প্রশ্নের বৃত্তে ট্যাপ/ক্লিক করলে সেটি উত্তর হবে (আবার চাপলে মুছে যাবে)।</div>
+<canvas id="sheet" class="sheet"></canvas></div>
+<div class="card"><h2>উত্তর (বদলানো যাবে)</h2><table id="tbl"></table></div></div></section>
+
+<section id="v-set" class="view"><div class="card"><h2>সেটিংস</h2>
+<label>ইঞ্জিন<select id="mode"><option value="hybrid">Hybrid (লোকাল + Gemini) ⭐</option><option value="local">শুধু লোকাল</option><option value="gemini">শুধু Gemini</option></select></label>
+<label>Gemini API Key (শুধু এই ডিভাইসে থাকে)<input id="gkey" type="password" placeholder="AIza…"></label>
+<label>Gemini মডেল<input id="gmodel" value="gemini-2.5-flash"></label>
+<div class="row"><label>প্রতি সঠিকে নম্বর<input id="mark" type="number" step=".25" value="1"></label><label>প্রতি ভুলে কাটা<input id="neg" type="number" step=".25" value="0"></label></div>
+<label>ভরাটের ন্যূনতম অনুপাত<input id="minfill" type="number" step=".05" min=".1" max=".9" value=".35"></label>
+<label><input id="auto" type="checkbox" checked style="width:auto"> স্থির হলে অটো-ক্যাপচার</label>
+<p class="mut">Key নিন: aistudio.google.com/apikey</p></div></section></main>
+
+<nav><button data-v="key" class="on">🔑<br>উত্তর</button><button data-v="scan">📷<br>স্ক্যান</button><button data-v="res">📊<br>ফলাফল</button><button data-v="set">⚙️<br>সেটিংস</button></nav>
+<script src="lib/xlsx.full.min.js"></script><script src="omr.js"></script>
+<script async src="lib/opencv.js"></script><script src="app.js"></script></body></html>
