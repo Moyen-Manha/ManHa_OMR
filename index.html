@@ -22,6 +22,10 @@ table{width:100%;border-collapse:collapse}td,th{padding:4px 6px;border-bottom:1p
 .CORRECT{color:var(--ok)}.WRONG,.MULTIPLE{color:var(--bad)}.rev{background:rgba(217,119,6,.18)}
 .crops{display:flex;gap:8px;overflow-x:auto}.crops figure{margin:0;min-width:240px}.crops canvas{width:100%;border:1px solid var(--bd);border-radius:8px}
 #msg{position:sticky;top:0;z-index:5}.toast{background:var(--warn);color:#fff;padding:8px 12px;border-radius:10px;margin-bottom:8px}
+.pt{width:100%}.pt th{background:var(--pri);color:#fff;padding:6px}.pt td.l{text-align:left}
+.pfoot{text-align:center;margin-top:16px;padding-top:8px;border-top:1px solid var(--bd);font-weight:700;color:var(--mut)}
+@media print{header,nav,#msg,.noprint{display:none!important}body{background:#fff;color:#000;padding:0}.view{display:none!important}#v-batch{display:block!important}main{max-width:none;padding:0}.card{border:0;padding:0;background:#fff}.mut{color:#333}
+.pt th{background:#eee!important;color:#000;border:1px solid #444;-webkit-print-color-adjust:exact;print-color-adjust:exact}.pt td{border:1px solid #444;color:#000}.pfoot{position:fixed;bottom:0;left:0;right:0;color:#000;border-top:1px solid #444;background:#fff}@page{margin:14mm 12mm 18mm}}
 </style></head><body>
 <header><span>📝 OMR রিডার</span><span id="cvst" class="mut" style="color:#d1fae5">লোড হচ্ছে…</span></header>
 <main><div id="msg"></div>
@@ -43,13 +47,20 @@ table{width:100%;border-collapse:collapse}td,th{padding:4px 6px;border-bottom:1p
 <div class="card"><div class="stats"><div><b id="s-m"></b>নম্বর</div><div><b id="s-ok" class="CORRECT"></b>সঠিক</div><div><b id="s-bad" class="WRONG"></b>ভুল</div><div><b id="s-bl"></b>ফাঁকা</div></div></div>
 <div class="card"><h2>পরীক্ষার্থী</h2><select id="stpick"><option value="">— তালিকা থেকে শিক্ষার্থী বাছুন —</option></select>
 <div class="row"><input id="i-name" placeholder="নাম"><input id="i-class" placeholder="শ্রেণি"><input id="i-roll" placeholder="রোল"><input id="i-dept" placeholder="গ্রুপ"></div><div id="rollhint" class="mut"></div>
-<button id="xl">⬇️ Excel ডাউনলোড</button></div>
+<div class="row"><button id="addres" style="background:#16a34a">✅ জমা দিন ও পরবর্তী স্ক্যান</button><button id="xl" class="sec">⬇️ এই শিটের Excel</button></div></div>
 <div class="card" id="revbox" hidden><h2>⚠️ যাচাই দরকার</h2><div id="crops" class="crops"></div></div>
 <div class="card"><h2>শিট (সবুজ=সঠিক, লাল=ভুল)</h2>
 <div class="row"><button class="sec" id="movebtn">↔️ গ্রিড সরান: বন্ধ</button><button class="sec" id="resetgrid">গ্রিড রিসেট</button></div>
 <div id="canhint" class="mut">👆 কোনো প্রশ্নের বৃত্তে ট্যাপ/ক্লিক করলে সেটি উত্তর হবে (আবার চাপলে মুছে যাবে)।</div>
 <canvas id="sheet" class="sheet"></canvas></div>
 <div class="card"><h2>উত্তর (বদলানো যাবে)</h2><table id="tbl"></table></div></div></section>
+
+<section id="v-batch" class="view"><div class="card">
+<input id="ptitle" class="noprint" placeholder="শিরোনাম: পরীক্ষার নাম / বিষয় (প্রিন্টে বসবে)" style="margin-bottom:8px">
+<h2 id="phead" style="text-align:center;font-size:1.3rem">ফলাফল সীট</h2><div id="pmeta" class="mut" style="text-align:center;margin-bottom:8px"></div>
+<table class="pt" id="ptbl"></table><div id="bempty" class="mut noprint">এখনো কোনো ফলাফল জমা হয়নি — স্ক্যানের পর "জমা দিন" চাপুন।</div>
+<div class="pfoot">ManHa IT</div>
+<div class="row noprint"><button id="bprint">🖨️ ডাউনলোড ফলাফল (প্রিন্ট / PDF)</button><button id="bxl" class="sec">⬇️ সব ফলাফল Excel</button><button id="bclr" class="sec">🗑️ সব মুছুন</button></div></div></section>
 
 <section id="v-set" class="view"><div class="card"><h2>সেটিংস</h2>
 <label>ইঞ্জিন<select id="mode"><option value="hybrid">Hybrid (লোকাল + Gemini) ⭐</option><option value="local">শুধু লোকাল</option><option value="gemini">শুধু Gemini</option></select></label>
@@ -60,6 +71,6 @@ table{width:100%;border-collapse:collapse}td,th{padding:4px 6px;border-bottom:1p
 <label><input id="auto" type="checkbox" checked style="width:auto"> স্থির হলে অটো-ক্যাপচার</label>
 <p class="mut">Key নিন: aistudio.google.com/apikey</p></div></section></main>
 
-<nav><button data-v="key" class="on">🔑<br>উত্তর</button><button data-v="scan">📷<br>স্ক্যান</button><button data-v="res">📊<br>ফলাফল</button><button data-v="set">⚙️<br>সেটিংস</button></nav>
+<nav><button data-v="key" class="on">🔑<br>উত্তর</button><button data-v="scan">📷<br>স্ক্যান</button><button data-v="res">📊<br>ফলাফল</button><button data-v="batch">📋<br>তালিকা<span id="bcnt"></span></button><button data-v="set">⚙️<br>সেটিংস</button></nav>
 <script src="lib/xlsx.full.min.js"></script><script src="omr.js"></script>
 <script async src="lib/opencv.js"></script><script src="app.js"></script></body></html>
