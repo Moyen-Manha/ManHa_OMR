@@ -20,6 +20,34 @@ const OMR = (() => {
     return key;
   }
 
+  /* ---------- একাধিক সেট (ক/খ/গ/ঘ) এক Excel-এ ---------- */
+  const normSet = s => normOpt(String(s == null ? '' : s).replace(/সেট|কোড|set|code|[\s_\-:]/gi, ''));
+  // sheets = [{name, rows}] → { A:{1:'C',…}, B:{…}, C:{…}, D:{…} } (যে সেট পাওয়া গেছে শুধু সেগুলো)
+  function parseKeySets(sheets) {
+    const res = {}, put = (set, key) => { if (set && Object.keys(key).length) res[set] = Object.assign(res[set] || {}, key); };
+    for (const { name, rows } of sheets) {
+      let hi = -1, cols = {};
+      for (let i = 0; i < Math.min(rows.length, 8) && hi < 0; i++) {   // হেডার সারি: কমপক্ষে ২টি সেট-কলাম
+        const m = {}; (rows[i] || []).forEach((c, j) => { const o = normSet(c); if (o && !(o in m)) m[o] = j; });
+        if (Object.keys(m).length >= 2 && !parseInt(enDigits((rows[i] || [])[0]))) { hi = i; cols = m; }
+      }
+      if (hi >= 0) {                                                    // একটি শিটে একাধিক সেট-কলাম
+        const qc = Math.max(0, Math.min(...Object.values(cols)) - 1);
+        for (const set in cols) { const key = {};
+          rows.slice(hi + 1).forEach(r => { const q = parseInt(enDigits(r[qc])), o = normOpt(r[cols[set]]); if (q && o) key[q] = o; });
+          put(set, key); }
+        continue;
+      }
+      const sn = normSet(name);
+      if (sn) { put(sn, parseKeyRows(rows)); continue; }               // শিটের নামই সেট (ক / Set A …)
+      const wide = rows.some(r => r.length >= 5 && parseInt(enDigits(r[0])) && normOpt(r[1]) && normOpt(r[4]));
+      if (wide) ['A', 'B', 'C', 'D'].forEach((o, j) => { const key = {};   // হেডার ছাড়া: প্রশ্ন | ক | খ | গ | ঘ
+        rows.forEach(r => { const q = parseInt(enDigits(r[0])), a = normOpt(r[j + 1]); if (q && a) key[q] = a; }); put(o, key); });
+      else put('A', parseKeyRows(rows));                                // শুধু প্রশ্ন|উত্তর → ক সেট
+    }
+    return res;
+  }
+
   const rollKey = r => { const n = enDigits(r).replace(/\D/g, ''); return n ? String(parseInt(n, 10)) : ''; };
   function parseStudents(rows) {  // কলাম: নাম, শ্রেণি, রোল, গ্রুপ (হেডার থাকলে নাম দেখে, না থাকলে এই ক্রমে)
     const re = { name: /নাম|name/i, class: /শ্রেণি|শ্রেণী|class/i, roll: /রোল|roll/i, group: /গ্রুপ|বিভাগ|group|dept|section/i };
@@ -186,7 +214,7 @@ Return ONLY JSON: {"answers": {"1": "C", "2": null, ...}, "name": "", "class": "
     }
     return { answers, status, info: { name: d.name || '', class: d.class || '', roll: enDigits(d.roll || ''), department: d.department || '' } };
   }
-  const api = { rollKey, parseStudents, findStudent, TW, TH, OPT, LAYOUT, parseKey, parseKeyRows, findQuad, autoScan, detect, evaluate, merge, gemini };
+  const api = { rollKey, parseStudents, findStudent, TW, TH, OPT, LAYOUT, parseKey, parseKeyRows, parseKeySets, normSet, findQuad, autoScan, detect, evaluate, merge, gemini };
   if (typeof module !== 'undefined') module.exports = api;
   return api;
 })();
