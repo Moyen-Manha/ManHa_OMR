@@ -30,9 +30,11 @@ table{width:100%;border-collapse:collapse}td,th{padding:4px 6px;border-bottom:1p
 <header><span>📝 OMR রিডার</span><span id="cvst" class="mut" style="color:#d1fae5">লোড হচ্ছে…</span></header>
 <main><div id="msg"></div>
 
-<section id="v-key" class="view on"><div class="card"><h2>১. সঠিক উত্তর</h2>
-<textarea id="keytxt" rows="5" placeholder="1-C, 2-D, 3-A, 4-B …  (ক/খ/গ/ঘ বা শুধু A,B,C,D,… ও চলবে)"></textarea>
-<div class="row"><label class="btn sec">📂 Excel/CSV আপলোড<input id="keyfile" type="file" accept=".xlsx,.xls,.csv" hidden></label><button id="keysave">সংরক্ষণ</button></div>
+<section id="v-key" class="view on"><div class="card"><h2>১. সঠিক উত্তর (সেট কোড ক/খ/গ/ঘ)</h2>
+<label class="mut">যে সেটের উত্তর নিচের বক্সে দেখাবে/সংরক্ষণ হবে<select id="setpick"></select></label>
+<textarea id="keytxt" rows="5" placeholder="নির্বাচিত সেটের উত্তর: 1-C, 2-D, 3-A, 4-B …  (ক/খ/গ/ঘ বা শুধু A,B,C,D,… ও চলবে)"></textarea>
+<div class="row"><label class="btn sec">📂 Excel/CSV আপলোড (সব সেট একসাথে)<input id="keyfile" type="file" accept=".xlsx,.xls,.csv" hidden></label><button id="keysave">এই সেট সংরক্ষণ</button></div>
+<p class="mut">Excel: এক শিটে কলাম <b>প্রশ্ন | ক | খ | গ | ঘ</b> (হেডার সহ), অথবা ৪টি শিট — নাম ক, খ, গ, ঘ (প্রতিটিতে প্রশ্ন | উত্তর)।</p>
 <div id="keyinfo" class="mut"></div></div>
 <div class="card"><h2>শিক্ষার্থী তালিকা (ঐচ্ছিক)</h2><p class="mut">Excel/CSV: নাম, শ্রেণি, রোল, গ্রুপ — স্ক্যানের পর রোল মিলিয়ে নিজে তথ্য বসাবে।</p>
 <div class="row"><label class="btn sec">📋 তালিকা আপলোড<input id="stfile" type="file" accept=".xlsx,.xls,.csv" hidden></label><button class="sec" id="stclear">মুছুন</button></div><div id="stinfo" class="mut"></div></div></section>
@@ -44,6 +46,7 @@ table{width:100%;border-collapse:collapse}td,th{padding:4px 6px;border-bottom:1p
 <div id="scanst" class="mut">শিটটি ফ্রেমে ধরুন — কাগজ খুঁজে পেলে সবুজ ফ্রেম দেখাবে ও স্থির হলে নিজে ছবি তুলবে।</div></div></section>
 
 <section id="v-res" class="view"><div id="resempty" class="card mut">আগে একটি শিট স্ক্যান করুন।</div><div id="resbody" hidden>
+<div class="card"><label><b>🔤 সেট কোড (মূল্যায়ন যে সেট দেখে হবে)</b><select id="setres"></select></label></div>
 <div class="card"><div class="stats"><div><b id="s-m"></b>নম্বর</div><div><b id="s-ok" class="CORRECT"></b>সঠিক</div><div><b id="s-bad" class="WRONG"></b>ভুল</div><div><b id="s-bl"></b>ফাঁকা</div></div></div>
 <div class="card"><h2>পরীক্ষার্থী</h2><select id="stpick"><option value="">— তালিকা থেকে শিক্ষার্থী বাছুন —</option></select>
 <div class="row"><input id="i-name" placeholder="নাম"><input id="i-class" placeholder="শ্রেণি"><input id="i-roll" placeholder="রোল"><input id="i-dept" placeholder="গ্রুপ"></div><div id="rollhint" class="mut"></div>
