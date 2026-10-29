@@ -198,7 +198,7 @@ function batchRender() {
   $('bcnt').textContent = S.batch.length ? ` (${S.batch.length})` : ''; $('bempty').hidden = !!list.length; $('ptbl').hidden = !list.length;
   $('phead').textContent = sheetTitle();
   $('pmeta').textContent = `তারিখ: ${new Date().toLocaleDateString('bn-BD')}${tot ? ' · পূর্ণমান: ' + tot : ''} · মোট শিক্ষার্থী: ${list.length}`;
-  $('ptbl').innerHTML = '<tr><th>ক্রম</th><th>নাম</th><th>শ্রেণি</th><th>রোল</th><th>গ্রুপ</th><th>প্রাপ্ত নম্বর</th><th class="noprint"></th></tr>' +
+  $('ptbl').innerHTML = '<tr><th>ক্রম</th><th>নাম</th><th>শ্রেণি</th><th>রোল</th><th>গ্রুপ</th><th>সেট</th><th>প্রাপ্ত নম্বর</th><th class="noprint"></th></tr>' +
     list.map((x, i) => `<tr><td>${i + 1}</td><td class="l">${esc(x.name)}</td><td>${esc(x.class)}</td><td>${esc(x.roll)}</td><td>${esc(x.group)}</td><td>${esc(x.set || '')}</td><td><b>${x.marks}</b></td><td class="noprint"><button class="sec" data-del="${S.batch.indexOf(x)}">✕</button></td></tr>`).join('');
   $('ptbl').querySelectorAll('[data-del]').forEach(b => b.onclick = () => { S.batch.splice(+b.dataset.del, 1); saveBatch(); batchRender(); });
 }
