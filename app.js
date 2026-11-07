@@ -24,8 +24,16 @@ $('auto').checked = S.cfg.auto; $('auto').onchange = () => { S.cfg.auto = $('aut
 $('keysave').onclick = () => { const ks = $('keyset').value; S.keys[ks] = OMR.parseKey($('keytxt').value); S.keytxts[ks] = $('keytxt').value; keyPersist(); keyInfo(); toast(hasKey(S.keys[ks]) ? 'সংরক্ষিত ✅' : 'কোনো উত্তর পাওয়া যায়নি', 1); };
 const readRows = async f => { const wb = XLSX.read(await f.arrayBuffer()); return XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: false, defval: '' }); };
 $('keyfile').onchange = async e => {
-  const f = e.target.files[0]; if (!f) return; const ks = $('keyset').value; S.keys[ks] = OMR.parseKeyRows(await readRows(f));
-  $('keytxt').value = S.keytxts[ks] = Object.entries(S.keys[ks]).map(([q, a]) => `${q}-${a}`).join(', '); keyPersist(); keyInfo();
+  const f = e.target.files[0]; if (!f) return; const rows = await readRows(f); e.target.value = '';   // একই ফাইল আবার বাছলেও কাজ করবে
+  const fmt = k => Object.entries(k).map(([q, a]) => `${q}-${a}`).join(', '), m = OMR.parseKeySets(rows);
+  if (m.multi) {
+    for (const s in m.sets) { S.keys[s] = m.sets[s]; S.keytxts[s] = fmt(m.sets[s]); }
+    keyTxtLoad(); keyPersist(); keyInfo();
+    toast(`✅ ${Object.keys(m.sets).map(s => s === 'default' ? 'ডিফল্ট' : 'সেট ' + SET_BN[s]).join(', ')} — ${Object.keys(m.sets).length} টি উত্তরমালা লোড হয়েছে`, 1);
+  } else {
+    const ks = $('keyset').value; S.keys[ks] = m.sets.single; S.keytxts[ks] = fmt(m.sets.single); keyTxtLoad(); keyPersist(); keyInfo();
+    toast(hasKey(S.keys[ks]) ? `✅ ${Object.keys(S.keys[ks]).length} টি উত্তর লোড হয়েছে` : 'ফাইলে কোনো উত্তর পাওয়া যায়নি (কলাম: প্রশ্ন, উত্তর)', 1);
+  }
 };
 
 /* ---- শিক্ষার্থী তালিকা ---- */
@@ -132,8 +140,8 @@ function render(full, shift, tmpAdj) {
     else if (f === k && OMR.OPT.includes(f)) ring(q, OMR.OPT.indexOf(f), '#16a34a', 10);
   }
   $('i-set').value = r.set || '-';
-  { const used = hasKey(S.keys[r.set]) ? 'সেট ' + SET_BN[r.set] + '-এর উত্তরমালা' : 'ডিফল্ট উত্তরমালা', st = r.loc.setStatus;
-    $('sethint').textContent = r.setEdited ? `হাতে বাছা — ${used} ব্যবহৃত` : st === 'OK' ? `শিট থেকে পড়া: ${SET_BN[r.set]} (${r.set}) — ${used} ব্যবহৃত` : st === 'MULTIPLE' ? 'একাধিক সেট ভরাট — হাতে বাছুন' : `সেট কোড ভরাট নেই — ${used} ব্যবহৃত`; }
+  { const used = hasKey(S.keys[r.set]) ? 'সেট ' + SET_BN[r.set] + '-এর উত্তরমালা' : hasKey(S.keys.default) ? 'ডিফল্ট উত্তরমালা' : null, st = r.loc.setStatus;
+    $('sethint').textContent = !used ? `⚠️ ${r.set ? 'সেট ' + SET_BN[r.set] + '-এর' : 'এই শিটের'} উত্তরমালা নেই — ড্রপডাউন থেকে সঠিক সেট বাছুন` : r.setEdited ? `হাতে বাছা — ${used} ব্যবহৃত` : st === 'OK' ? `শিট থেকে পড়া: ${SET_BN[r.set]} (${r.set}) — ${used} ব্যবহৃত` : st === 'MULTIPLE' ? 'একাধিক সেট ভরাট — হাতে বাছুন' : `সেট কোড ভরাট নেই — ${used} ব্যবহৃত`; }
   $('tbl').innerHTML = '<tr><th>#</th><th>উত্তর</th><th>সঠিক</th><th>ফল</th></tr>' + rows.map(([q, s, k, res]) =>
     `<tr class="${r.review.includes(q) ? 'rev' : ''}"><td>${q}</td><td><select data-q="${q}">${['A', 'B', 'C', 'D', '-', 'MULTI'].map(o => `<option ${o === s ? 'selected' : ''}>${o}</option>`).join('')}</select></td><td>${k}</td><td class="${res.split(' ')[0]}">${res}</td></tr>`).join('');
   $('tbl').querySelectorAll('select').forEach(s => s.onchange = () => { r.final[s.dataset.q] = r.manual[s.dataset.q] = s.value; render(); });
