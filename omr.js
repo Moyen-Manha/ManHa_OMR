@@ -155,6 +155,17 @@ const OMR = (() => {
     } catch (e) { return null; } finally { small.delete(); }
   }
 
+  /* ---------- হাতে সরানো সমন্বয় (শিট-ভিত্তিক): ends=উপর/নীচ প্রান্ত, rows=সারি, bubbles=একক বাবল ---------- */
+  function applyAdj(G, adj, rows = LAYOUT.rows) {
+    if (!adj) return G; const out = {};
+    for (const q in G) {
+      const n = +q, b = n > rows ? 1 : 0, r = (n - 1) % rows, t = rows > 1 ? r / (rows - 1) : 0, e = (adj.ends || {})[b] || {}, tp = e.top || [0, 0], bt = e.bottom || [0, 0];
+      let dx = tp[0] * (1 - t) + bt[0] * t, dy = tp[1] * (1 - t) + bt[1] * t; const rw = (adj.rows || {})[q]; if (rw) { dx += rw[0]; dy += rw[1]; }
+      out[q] = G[q].map(([x, y], i) => { const bb = (adj.bubbles || {})[q + '_' + i]; return [x + dx + (bb ? bb[0] : 0), y + dy + (bb ? bb[1] : 0)]; });
+    }
+    return out;
+  }
+
   /* ---------- বাবল শনাক্তকরণ ---------- */
   function grid(w, h, L) {
     const g = {};
@@ -186,6 +197,7 @@ const OMR = (() => {
     else { G = grid(w, h, LAYOUT); diam = (L.b1[1] - L.b1[0]) * w * .85; rp = { xs: LAYOUT.rx.map(x => x * w), ys: LAYOUT.ry.map(y => y * h), r: (LAYOUT.rx[1] - LAYOUT.rx[0]) * w * .3 }; }
     for (const q in G) G[q] = G[q].map(([x, y]) => [x + dx, y + dy]);
     rp = { xs: rp.xs.map(x => x + dx), ys: rp.ys.map(y => y + dy), r: rp.r };
+    const baseG = G; G = applyAdj(G, o.adj);
     const A = Math.PI * (diam / 2) ** 2, tol = diam * .75;
     const det = {}; Object.keys(G).forEach(q => det[q] = []);
     const cs = new cv.MatVector(), hi = new cv.Mat(); cv.findContours(bin, cs, hi, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
@@ -208,7 +220,7 @@ const OMR = (() => {
     rp.xs.forEach(x => { const f = rp.ys.map(y => fill(bin, x, y, rp.r)), mx = Math.max(...f), i = f.indexOf(mx);
       roll += mx >= .45 && f.filter(v => v >= .45).length === 1 ? i : '?'; });
     cs.delete(); hi.delete(); g.delete(); bin.delete();
-    return { answers, status, grid: G, diam, roll, calibrated: !!cal };
+    return { answers, status, grid: G, baseGrid: baseG, diam, roll, calibrated: !!cal };
   }
 
   /* ---------- মূল্যায়ন ও মার্জ ---------- */
@@ -259,7 +271,7 @@ Return ONLY JSON: {"answers": {"1": "C", "2": null, ...}, "name": "", "class": "
     }
     return { answers, status, info: { name: d.name || '', class: d.class || '', roll: enDigits(d.roll || ''), department: d.department || '' } };
   }
-  const api = { rollKey, parseStudents, findStudent, TW, TH, OPT, LAYOUT, parseKey, parseKeyRows, findQuad, autoScan, detect, evaluate, merge, gemini };
+  const api = { applyAdj, rollKey, parseStudents, findStudent, TW, TH, OPT, LAYOUT, parseKey, parseKeyRows, findQuad, autoScan, detect, evaluate, merge, gemini };
   if (typeof module !== 'undefined') module.exports = api;
   return api;
 })();
