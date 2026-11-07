@@ -1,29 +1,14 @@
 const $ = id => document.getElementById(id);
-const S = { key: {}, keys: {}, set: 'A', students: [], batch: [], lastCam: false, move: false, cfg: { mode: 'hybrid', gkey: '', gmodel: 'gemini-2.5-flash', mark: 1, neg: 0, minfill: .35, auto: true, dx: 0, dy: 0 }, r: null };
+const S = { key: {}, students: [], batch: [], lastCam: false, mode: 'tap', cfg: { mode: 'hybrid', gkey: '', gmodel: 'gemini-2.5-flash', mark: 1, neg: 0, minfill: .35, auto: true, dx: 0, dy: 0 }, r: null };
 let stream = null, loop = null, stable = 0, prevQ = null, busy = false, cvReady = false;
-try { Object.assign(S.cfg, JSON.parse(localStorage.cfg || '{}')); S.keys = JSON.parse(localStorage.keys || 'null') || (localStorage.key ? { A: JSON.parse(localStorage.key) } : {}); S.set = (localStorage.set && 'ABCD'.includes(localStorage.set)) ? localStorage.set : 'A'; S.key = S.keys[S.set] || {}; S.students = JSON.parse(localStorage.students || '[]'); S.batch = JSON.parse(localStorage.batch || '[]'); $('ptitle').value = localStorage.ptitle || '';  } catch (e) {}
+try { Object.assign(S.cfg, JSON.parse(localStorage.cfg || '{}')); S.key = JSON.parse(localStorage.key || '{}'); S.students = JSON.parse(localStorage.students || '[]'); S.batch = JSON.parse(localStorage.batch || '[]'); $('ptitle').value = localStorage.ptitle || ''; $('keytxt').value = localStorage.keytxt || ''; } catch (e) {}
 const saveCfg = () => localStorage.cfg = JSON.stringify(S.cfg);
 const toast = (t, ok) => { $('msg').innerHTML = t ? `<div class="toast" ${ok ? 'style="background:#16a34a"' : ''}>${t}</div>` : ''; if (ok) setTimeout(() => toast(''), 3000); };
 
 /* ---- নেভিগেশন ---- */
 document.querySelectorAll('nav button').forEach(b => b.onclick = () => show(b.dataset.v));
 function show(v) { document.querySelectorAll('.view').forEach(e => e.classList.toggle('on', e.id === 'v-' + v)); document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.v === v)); if (v !== 'scan') camStop(); if (v === 'batch') batchRender(); }
-const SETN = { A: 'ক', B: 'খ', C: 'গ', D: 'ঘ' }, SETS = ['A', 'B', 'C', 'D'];
-const keysTxt = k => Object.entries(k || {}).map(([q, o]) => `${q}-${o}`).join(', ');
-const saveKeys = () => { localStorage.keys = JSON.stringify(S.keys); localStorage.set = S.set; };
-function keyInfo() {
-  const n = o => Object.keys(S.keys[o] || {}).length;
-  const opts = SETS.map(o => `<option value="${o}" ${o === S.set ? 'selected' : ''}>${SETN[o]} সেট ${n(o) ? '✅ ' + n(o) + 'টি' : '— উত্তর নেই'}</option>`).join('');
-  $('setpick').innerHTML = opts; $('setres').innerHTML = opts;
-  $('keyinfo').textContent = SETS.some(n) ? '✅ সংরক্ষিত: ' + SETS.filter(n).map(o => `${SETN[o]}=${n(o)}`).join(' · ') : '';
-  $('keytxt').value = keysTxt(S.keys[S.set]);
-}
-function pickSet(o) {  // সেট বদলালে সঠিক উত্তর বদলায়, খোলা ফলাফলও নতুন করে মূল্যায়ন হয়
-  S.set = o; S.key = S.keys[o] || {}; saveKeys(); keyInfo();
-  if (S.r) { render(); if (!Object.keys(S.key).length) toast(`${SETN[o]} সেটের উত্তর দেওয়া নেই — \"উত্তর\" ট্যাবে দিন`); else toast(`${SETN[o]} সেট দেখে মূল্যায়ন হচ্ছে`, 1); }
-}
-$('setpick').onchange = () => pickSet($('setpick').value);
-$('setres').onchange = () => pickSet($('setres').value);
+const keyInfo = () => $('keyinfo').textContent = Object.keys(S.key).length ? `✅ ${Object.keys(S.key).length} টি সঠিক উত্তর সংরক্ষিত` : '';
 keyInfo();
 
 /* ---- সেটিংস ---- */
@@ -31,19 +16,11 @@ for (const k of ['mode', 'gkey', 'gmodel', 'mark', 'neg', 'minfill']) { $(k).val
 $('auto').checked = S.cfg.auto; $('auto').onchange = () => { S.cfg.auto = $('auto').checked; saveCfg(); };
 
 /* ---- সঠিক উত্তর ---- */
-$('keysave').onclick = () => { S.keys[S.set] = OMR.parseKey($('keytxt').value); S.key = S.keys[S.set]; saveKeys(); keyInfo(); toast(Object.keys(S.key).length ? `${SETN[S.set]} সেট সংরক্ষিত ✅` : 'কোনো উত্তর পাওয়া যায়নি', 1); };
+$('keysave').onclick = () => { S.key = OMR.parseKey($('keytxt').value); localStorage.key = JSON.stringify(S.key); localStorage.keytxt = $('keytxt').value; keyInfo(); toast(Object.keys(S.key).length ? 'সংরক্ষিত ✅' : 'কোনো উত্তর পাওয়া যায়নি', 1); };
 const readRows = async f => { const wb = XLSX.read(await f.arrayBuffer()); return XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: false, defval: '' }); };
 $('keyfile').onchange = async e => {
-  const f = e.target.files[0]; if (!f) return;
-  try {
-    const wb = XLSX.read(await f.arrayBuffer()), sheets = wb.SheetNames.map(name => ({ name, rows: XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, raw: false, defval: '' }) }));
-    const found = OMR.parseKeySets(sheets), got = SETS.filter(o => found[o]);
-    if (!got.length) { toast('কোনো উত্তর পাওয়া যায়নি — কলাম: প্রশ্ন | ক | খ | গ | ঘ'); e.target.value = ''; return; }
-    got.forEach(o => S.keys[o] = found[o]);
-    if (!found[S.set]) S.set = got[0]; S.key = S.keys[S.set] || {}; saveKeys(); keyInfo(); if (S.r) render();
-    toast('লোড হয়েছে: ' + got.map(o => `${SETN[o]} সেট (${Object.keys(found[o]).length}টি)`).join(', '), 1);
-  } catch (err) { toast('ফাইল পড়া যায়নি: ' + err.message); }
-  e.target.value = '';
+  const f = e.target.files[0]; if (!f) return; S.key = OMR.parseKeyRows(await readRows(f)); localStorage.key = JSON.stringify(S.key);
+  $('keytxt').value = localStorage.keytxt = Object.entries(S.key).map(([q, a]) => `${q}-${a}`).join(', '); keyInfo();
 };
 
 /* ---- শিক্ষার্থী তালিকা ---- */
@@ -103,13 +80,13 @@ $('imgfile').onchange = async e => {
 const layout = () => { const L = OMR.LAYOUT, w = OMR.TW, h = OMR.TH, dx = S.cfg.dx / w, dy = S.cfg.dy / h;  // সংরক্ষিত গ্রিড-সরানো অফসেট
   return { ...L, b1: L.b1.map(x => x + dx), b2: L.b2.map(x => x + dx), rx: L.rx.map(x => x + dx), ry: L.ry.map(y => y + dy), y0: L.y0 + dy, y1: L.y1 + dy }; };
 function applyEngines(r, loc) {  // লোকাল (+Gemini) মিলিয়ে চূড়ান্ত উত্তর বানায়
-  r.loc = loc; r.grid = loc.grid; r.diam = loc.diam; r.fa = loc.answers; r.fs = loc.status; r.review = [];
+  r.loc = loc; r.grid = loc.grid; r.baseGrid = loc.baseGrid; r.diam = loc.diam; r.manual = r.manual || {}; r.fa = loc.answers; r.fs = loc.status; r.review = [];
   if (r.ga) { if (S.cfg.mode === 'gemini') { r.fa = r.ga.answers; r.fs = r.ga.status; } else { const m = OMR.merge(loc.answers, loc.status, r.ga.answers, r.ga.status); r.fa = m.fa; r.fs = m.fs; r.review = m.review; } }
-  r.final = {}; for (const q in r.fa) r.final[q] = r.fa[q] || (r.fs[q] === 'MULTIPLE' ? 'MULTI' : '-');
+  r.final = {}; for (const q in r.fa) r.final[q] = r.manual[q] ?? (r.fa[q] || (r.fs[q] === 'MULTIPLE' ? 'MULTI' : '-'));
 }
 async function process(canvas) {
   if (!cvReady) return toast('OpenCV এখনো লোড হচ্ছে, একটু অপেক্ষা করুন…');
-  if (!Object.keys(S.key).length) { toast(`${SETN[S.set]} সেটের সঠিক উত্তর নেই — "উত্তর" ট্যাবে দিন`); return show('key'); }
+  if (!Object.keys(S.key).length) { toast('আগে "উত্তর" ট্যাবে সঠিক উত্তর দিন'); return show('key'); }
   if (busy) return; busy = true; toast('প্রসেসিং চলছে…');
   try {
     const src = cv.imread(canvas), { mat, found } = OMR.autoScan(src); src.delete();
@@ -131,19 +108,19 @@ function matchStudent(r, bubbleRoll) {  // রোল বাবল → Gemini র
   if (cands.length) { r.info.roll = r.info.roll || String(parseInt(cands[0], 10) || cands[0]); if (S.students.length) toast(`রোল ${r.info.roll} তালিকায় পাওয়া যায়নি — তালিকা থেকে বেছে নিন`); }
 }
 function redetect() {  // গ্রিড সরানোর পর আবার পড়া
-  const r = S.r, m = cv.imread(r.sheet), loc = OMR.detect(m, { minFill: S.cfg.minfill, layout: layout() }); m.delete();
+  const r = S.r, m = cv.imread(r.sheet), loc = OMR.detect(m, { minFill: S.cfg.minfill, layout: layout(), adj: r.adj }); m.delete();
   applyEngines(r, loc); render(false);
 }
 
 /* ---- ফলাফল রেন্ডার ---- */
-function render(full, shift) {
+function render(full, shift, tmpAdj) {
   const r = S.r; if (!r) return; $('resempty').hidden = true; $('resbody').hidden = false;
   const { rows, sum } = OMR.evaluate(r.final, S.key, S.cfg.mark, S.cfg.neg); r.rows = rows; r.sum = sum;
   $('s-m').textContent = `${sum['প্রাপ্ত নম্বর']}/${sum['পূর্ণমান']}`; $('s-ok').textContent = sum['সঠিক']; $('s-bad').textContent = sum['ভুল']; $('s-bl').textContent = sum['ফাঁকা'];
   const c = $('sheet'); c.width = r.sheet.width; c.height = r.sheet.height; const x = c.getContext('2d'); x.drawImage(r.sheet, 0, 0);
-  const tx = shift ? shift.tx : 0, ty = shift ? shift.ty : 0, R = r.diam * .45, ring = (q, i, col, lw) => { x.strokeStyle = col; x.lineWidth = lw; x.beginPath(); x.arc(r.grid[q][i][0] + tx, r.grid[q][i][1] + ty, R, 0, 7); x.stroke(); };
+  const GG = tmpAdj ? OMR.applyAdj(r.baseGrid, tmpAdj) : r.grid, tx = shift ? shift.tx : 0, ty = shift ? shift.ty : 0, R = r.diam * .45, ring = (q, i, col, lw) => { x.strokeStyle = col; x.lineWidth = lw; x.beginPath(); x.arc(GG[q][i][0] + tx, GG[q][i][1] + ty, R, 0, 7); x.stroke(); };
   for (const q in r.grid) {
-    if (S.move) for (let i = 0; i < 4; i++) ring(q, i, 'rgba(59,130,246,.9)', 3);  // সারিবদ্ধতা দেখার গাইড
+    if (S.mode !== 'tap') for (let i = 0; i < 4; i++) ring(q, i, 'rgba(59,130,246,.9)', 3);  // সারিবদ্ধতা দেখার গাইড
     const k = S.key[q], f = r.final[q];
     if (OMR.OPT.includes(k)) ring(q, OMR.OPT.indexOf(k), '#16a34a', 6);
     if (OMR.OPT.includes(f) && f !== k) ring(q, OMR.OPT.indexOf(f), '#dc2626', 6);
@@ -151,7 +128,7 @@ function render(full, shift) {
   }
   $('tbl').innerHTML = '<tr><th>#</th><th>উত্তর</th><th>সঠিক</th><th>ফল</th></tr>' + rows.map(([q, s, k, res]) =>
     `<tr class="${r.review.includes(q) ? 'rev' : ''}"><td>${q}</td><td><select data-q="${q}">${['A', 'B', 'C', 'D', '-', 'MULTI'].map(o => `<option ${o === s ? 'selected' : ''}>${o}</option>`).join('')}</select></td><td>${k}</td><td class="${res.split(' ')[0]}">${res}</td></tr>`).join('');
-  $('tbl').querySelectorAll('select').forEach(s => s.onchange = () => { r.final[s.dataset.q] = s.value; render(); });
+  $('tbl').querySelectorAll('select').forEach(s => s.onchange = () => { r.final[s.dataset.q] = r.manual[s.dataset.q] = s.value; render(); });
   $('revbox').hidden = !r.review.length; $('crops').innerHTML = '';
   r.review.forEach(q => {
     const g = r.grid[q], d = r.diam, cv2 = document.createElement('canvas'), x0 = g[0][0] - d, w = g[3][0] - g[0][0] + 2 * d;
@@ -164,27 +141,53 @@ function render(full, shift) {
   }
 }
 
-/* ---- ক্যানভাসে ট্যাপ করে উত্তর বদলানো / গ্রিড টেনে সরানো ---- */
+/* ---- ক্যানভাসে ট্যাপ করে উত্তর বদলানো / বাবল-গ্রিড মাউস বা আঙুলে টেনে ঠিক করা ---- */
 const cvs = $('sheet'); let drag = null;
-const setMove = on => { S.move = on; $('movebtn').textContent = '↔️ গ্রিড সরান: ' + (on ? 'চালু' : 'বন্ধ'); $('movebtn').className = on ? '' : 'sec'; cvs.style.touchAction = on ? 'none' : 'pan-y';
-  $('canhint').textContent = on ? '↔️ নীল বৃত্তগুলো ছাপা বৃত্তের ওপর না বসলে শিটে আঙুল/মাউস দিয়ে টেনে মিলিয়ে ছাড়ুন — ছাড়লে আবার পড়া হবে (ম্যানুয়াল বদল মুছে যাবে)।' : '👆 কোনো প্রশ্নের বৃত্তে ট্যাপ/ক্লিক করলে সেটি উত্তর হবে (আবার চাপলে মুছে যাবে)।'; if (S.r) render(); };
-setMove(false);
-$('movebtn').onclick = () => setMove(!S.move);
-$('resetgrid').onclick = () => { S.cfg.dx = S.cfg.dy = 0; saveCfg(); if (S.r) { redetect(); toast('গ্রিড রিসেট হয়েছে', 1); } };
+const HINT = {
+  tap: '👆 কোনো প্রশ্নের বৃত্তে ট্যাপ/ক্লিক করলে সেটি উত্তর হবে (আবার চাপলে মুছে যাবে)।',
+  all: '↔️ নীল বৃত্তগুলো ছাপা বৃত্তের সাথে না মিললে শিটে যেকোনো জায়গা ধরে টানুন — পুরো গ্রিড একসাথে সরবে (পরের স্ক্যানেও থাকবে)।',
+  ends: '↕️ গ্রিডের ওপরের অংশের কোনো বাবল ধরে টানলে ওপরের দিক, নীচের অংশ ধরলে নীচের দিক সরবে; মাঝের সারিগুলো আপনাআপনি অনুপাতে সরবে (স্কেল/ঢাল ঠিক করতে)।',
+  row: '▬ কোনো একটি প্রশ্নের বাবল ধরে টানুন — ওই প্রশ্নের ৪টি বাবল একসাথে সরবে।',
+  bubble: '● যেকোনো একটি বাবল ধরে টানুন — শুধু সেটি সরবে।',
+};
+const setMode = m => { S.mode = m; document.querySelectorAll('#modes [data-m]').forEach(b => b.className = b.dataset.m === m ? '' : 'sec'); cvs.style.touchAction = m === 'tap' ? 'pan-y' : 'none'; $('canhint').textContent = HINT[m]; if (S.r) render(); };
+document.querySelectorAll('#modes [data-m]').forEach(b => b.onclick = () => setMode(b.dataset.m)); setMode('tap');
+$('resetgrid').onclick = () => { S.cfg.dx = S.cfg.dy = 0; saveCfg(); if (S.r) { S.r.adj = null; redetect(); toast('গ্রিড রিসেট হয়েছে', 1); } };
 const k = () => cvs.width / cvs.getBoundingClientRect().width;
-cvs.onpointerdown = e => { drag = { x: e.clientX, y: e.clientY, tx: 0, ty: 0, moved: false }; cvs.setPointerCapture(e.pointerId); };
+const cloneAdj = a => JSON.parse(JSON.stringify(a || { ends: {}, rows: {}, bubbles: {} }));
+const nearest = (px, py, tol) => { const r = S.r; let best = null; for (const q in r.grid) r.grid[q].forEach(([gx, gy], i) => { const d = Math.hypot(px - gx, py - gy); if (d < tol && (!best || d < best[0])) best = [d, +q, i]; }); return best; };
+const tmpFor = d => {  // টানার সময়ের সমন্বয় (প্রিভিউ ও ছাড়ার পর কমিট দুটোতেই একই)
+  const t = cloneAdj(S.r.adj), add = (o, key) => { const p = o[key] || [0, 0]; o[key] = [p[0] + d.tx, p[1] + d.ty]; };
+  if (d.t.kind === 'end') { t.ends[d.t.b] = t.ends[d.t.b] || {}; add(t.ends[d.t.b], d.t.part); }
+  else if (d.t.kind === 'row') add(t.rows, d.t.q); else if (d.t.kind === 'bubble') add(t.bubbles, d.t.q + '_' + d.t.i);
+  return t;
+};
+cvs.onpointerdown = e => {
+  const b = cvs.getBoundingClientRect(), px = (e.clientX - b.left) * k(), py = (e.clientY - b.top) * k(), r = S.r; if (!r) return;
+  let t = null;
+  if (S.mode === 'all') t = { kind: 'all' };
+  else if (S.mode !== 'tap') {
+    const n = nearest(px, py, r.diam * 1.6); if (!n) return;
+    const q = n[1], rows = OMR.LAYOUT.rows, row = (q - 1) % rows;
+    t = S.mode === 'ends' ? { kind: 'end', b: q > rows ? 1 : 0, part: row / (rows - 1) < .5 ? 'top' : 'bottom' } : S.mode === 'row' ? { kind: 'row', q } : { kind: 'bubble', q, i: n[2] };
+  }
+  drag = { x: e.clientX, y: e.clientY, tx: 0, ty: 0, moved: false, t }; cvs.setPointerCapture(e.pointerId);
+};
 cvs.onpointermove = e => {
   if (!drag) return; drag.tx = (e.clientX - drag.x) * k(); drag.ty = (e.clientY - drag.y) * k();
-  if (Math.hypot(e.clientX - drag.x, e.clientY - drag.y) > 8) drag.moved = true;
-  if (S.move && drag.moved) render(false, drag);
+  if (Math.hypot(e.clientX - drag.x, e.clientY - drag.y) > 6) drag.moved = true;
+  if (S.mode !== 'tap' && drag.t && drag.moved) { if (drag.t.kind === 'all') render(false, drag); else render(false, null, tmpFor(drag)); }
 };
 cvs.onpointerup = e => {
-  const d = drag; drag = null; if (!d || !S.r) return;
-  if (S.move) { if (d.moved) { S.cfg.dx += d.tx; S.cfg.dy += d.ty; saveCfg(); redetect(); toast('গ্রিড সরিয়ে আবার পড়া হয়েছে (পরের স্ক্যানেও এই অবস্থান থাকবে)', 1); } return; }
+  const d = drag; drag = null; if (!d || !S.r) return; const r = S.r;
+  if (S.mode !== 'tap') {
+    if (!d.t || !d.moved) return;
+    if (d.t.kind === 'all') { S.cfg.dx += d.tx; S.cfg.dy += d.ty; saveCfg(); } else r.adj = tmpFor(d);
+    redetect(); toast(d.t.kind === 'all' ? 'গ্রিড সরিয়ে আবার পড়া হয়েছে (পরের স্ক্যানেও এই অবস্থান থাকবে)' : 'বাবল সরিয়ে আবার পড়া হয়েছে — হাতে ঠিক করা উত্তর অপরিবর্তিত', 1); return;
+  }
   if (d.moved) return;
-  const b = cvs.getBoundingClientRect(), px = (e.clientX - b.left) * k(), py = (e.clientY - b.top) * k(), r = S.r; let best = null;
-  for (const q in r.grid) r.grid[q].forEach(([gx, gy], i) => { const dd = Math.hypot(px - gx, py - gy); if (dd < r.diam * .7 && (!best || dd < best[0])) best = [dd, q, i]; });
-  if (!best) return; const o = OMR.OPT[best[2]]; r.final[best[1]] = r.final[best[1]] === o ? '-' : o; render();
+  const b = cvs.getBoundingClientRect(), n = nearest((e.clientX - b.left) * k(), (e.clientY - b.top) * k(), r.diam * .7); if (!n) return;
+  const o = OMR.OPT[n[2]]; r.final[n[1]] = r.manual[n[1]] = r.final[n[1]] === o ? '-' : o; render();
 };
 cvs.onpointercancel = () => { drag = null; };
 
@@ -198,13 +201,13 @@ function batchRender() {
   $('bcnt').textContent = S.batch.length ? ` (${S.batch.length})` : ''; $('bempty').hidden = !!list.length; $('ptbl').hidden = !list.length;
   $('phead').textContent = sheetTitle();
   $('pmeta').textContent = `তারিখ: ${new Date().toLocaleDateString('bn-BD')}${tot ? ' · পূর্ণমান: ' + tot : ''} · মোট শিক্ষার্থী: ${list.length}`;
-  $('ptbl').innerHTML = '<tr><th>ক্রম</th><th>নাম</th><th>শ্রেণি</th><th>রোল</th><th>গ্রুপ</th><th>সেট</th><th>প্রাপ্ত নম্বর</th><th class="noprint"></th></tr>' +
-    list.map((x, i) => `<tr><td>${i + 1}</td><td class="l">${esc(x.name)}</td><td>${esc(x.class)}</td><td>${esc(x.roll)}</td><td>${esc(x.group)}</td><td>${esc(x.set || '')}</td><td><b>${x.marks}</b></td><td class="noprint"><button class="sec" data-del="${S.batch.indexOf(x)}">✕</button></td></tr>`).join('');
+  $('ptbl').innerHTML = '<tr><th>ক্রম</th><th>নাম</th><th>শ্রেণি</th><th>রোল</th><th>গ্রুপ</th><th>প্রাপ্ত নম্বর</th><th class="noprint"></th></tr>' +
+    list.map((x, i) => `<tr><td>${i + 1}</td><td class="l">${esc(x.name)}</td><td>${esc(x.class)}</td><td>${esc(x.roll)}</td><td>${esc(x.group)}</td><td><b>${x.marks}</b></td><td class="noprint"><button class="sec" data-del="${S.batch.indexOf(x)}">✕</button></td></tr>`).join('');
   $('ptbl').querySelectorAll('[data-del]').forEach(b => b.onclick = () => { S.batch.splice(+b.dataset.del, 1); saveBatch(); batchRender(); });
 }
 $('addres').onclick = () => {
   const r = S.r; if (!r) return;
-  const e = { name: $('i-name').value.trim(), class: $('i-class').value.trim(), roll: $('i-roll').value.trim(), group: $('i-dept').value.trim(), set: SETN[S.set], marks: r.sum['প্রাপ্ত নম্বর'], total: r.sum['পূর্ণমান'] };
+  const e = { name: $('i-name').value.trim(), class: $('i-class').value.trim(), roll: $('i-roll').value.trim(), group: $('i-dept').value.trim(), marks: r.sum['প্রাপ্ত নম্বর'], total: r.sum['পূর্ণমান'] };
   if (!e.roll && !e.name) return toast('আগে রোল বা নাম দিন');
   const i = e.roll ? S.batch.findIndex(x => OMR.rollKey(x.roll) === OMR.rollKey(e.roll)) : -1;
   if (i >= 0) S.batch[i] = e; else S.batch.push(e);
@@ -217,8 +220,8 @@ $('bprint').onclick = () => { if (!S.batch.length) return toast('কোনো �
 $('bclr').onclick = () => { if (S.batch.length && confirm('সব জমাকৃত ফলাফল মুছে ফেলবেন?')) { S.batch = []; saveBatch(); batchRender(); } };
 $('bxl').onclick = () => {
   if (!S.batch.length) return toast('কোনো ফলাফল জমা নেই');
-  const aoa = [[sheetTitle()], [], ['ক্রম', 'নাম', 'শ্রেণি', 'রোল', 'গ্রুপ', 'সেট', 'প্রাপ্ত নম্বর'], ...sortedBatch().map((x, i) => [i + 1, x.name, x.class, x.roll, x.group, x.set || '', x.marks]), [], ['ManHa IT']];
-  const ws = XLSX.utils.aoa_to_sheet(aoa); ws['!cols'] = [{ wch: 7 }, { wch: 26 }, { wch: 12 }, { wch: 12 }, { wch: 18 }, { wch: 8 }, { wch: 14 }];
+  const aoa = [[sheetTitle()], [], ['ক্রম', 'নাম', 'শ্রেণি', 'রোল', 'গ্রুপ', 'প্রাপ্ত নম্বর'], ...sortedBatch().map((x, i) => [i + 1, x.name, x.class, x.roll, x.group, x.marks]), [], ['ManHa IT']];
+  const ws = XLSX.utils.aoa_to_sheet(aoa); ws['!cols'] = [{ wch: 7 }, { wch: 26 }, { wch: 12 }, { wch: 12 }, { wch: 18 }, { wch: 14 }];
   const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'ফলাফল'); XLSX.writeFile(wb, 'result_sheet.xlsx');
 };
 batchRender();
@@ -226,7 +229,7 @@ batchRender();
 /* ---- Excel ---- */
 $('xl').onclick = () => {
   const r = S.r; if (!r) return;
-  const info = [['বিবরণ', 'মান'], ['নাম', $('i-name').value], ['শ্রেণি', $('i-class').value], ['রোল নং', $('i-roll').value], ['গ্রুপ', $('i-dept').value], ['সেট কোড', SETN[S.set]], ...Object.entries(r.sum)];
+  const info = [['বিবরণ', 'মান'], ['নাম', $('i-name').value], ['শ্রেণি', $('i-class').value], ['রোল নং', $('i-roll').value], ['গ্রুপ', $('i-dept').value], ...Object.entries(r.sum)];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(info), 'সারাংশ');
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['প্রশ্ন', 'শিক্ষার্থীর উত্তর', 'সঠিক উত্তর', 'ফলাফল'], ...r.rows]), 'বিস্তারিত');
