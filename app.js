@@ -1,14 +1,19 @@
 const $ = id => document.getElementById(id);
 const S = { key: {}, students: [], batch: [], lastCam: false, mode: 'tap', cfg: { mode: 'hybrid', gkey: '', gmodel: 'gemini-2.5-flash', mark: 1, neg: 0, minfill: .35, auto: true, dx: 0, dy: 0 }, r: null };
 let stream = null, loop = null, stable = 0, prevQ = null, busy = false, cvReady = false;
-try { Object.assign(S.cfg, JSON.parse(localStorage.cfg || '{}')); S.key = JSON.parse(localStorage.key || '{}'); S.students = JSON.parse(localStorage.students || '[]'); S.batch = JSON.parse(localStorage.batch || '[]'); $('ptitle').value = localStorage.ptitle || ''; $('keytxt').value = localStorage.keytxt || ''; } catch (e) {}
+try { Object.assign(S.cfg, JSON.parse(localStorage.cfg || '{}')); S.keys = JSON.parse(localStorage.getItem('keys') || 'null') || { default: JSON.parse(localStorage.getItem('key') || '{}') }; S.keytxts = JSON.parse(localStorage.getItem('keytxts') || 'null') || { default: localStorage.keytxt || '' }; S.students = JSON.parse(localStorage.students || '[]'); S.batch = JSON.parse(localStorage.batch || '[]'); $('ptitle').value = localStorage.ptitle || ''; } catch (e) {}
 const saveCfg = () => localStorage.cfg = JSON.stringify(S.cfg);
 const toast = (t, ok) => { $('msg').innerHTML = t ? `<div class="toast" ${ok ? 'style="background:#16a34a"' : ''}>${t}</div>` : ''; if (ok) setTimeout(() => toast(''), 3000); };
 
 /* ---- নেভিগেশন ---- */
 document.querySelectorAll('nav button').forEach(b => b.onclick = () => show(b.dataset.v));
 function show(v) { document.querySelectorAll('.view').forEach(e => e.classList.toggle('on', e.id === 'v-' + v)); document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.v === v)); if (v !== 'scan') camStop(); if (v === 'batch') batchRender(); }
-const keyInfo = () => $('keyinfo').textContent = Object.keys(S.key).length ? `✅ ${Object.keys(S.key).length} টি সঠিক উত্তর সংরক্ষিত` : '';
+const SET_BN = { A: 'ক', B: 'খ', C: 'গ', D: 'ঘ' }, hasKey = k => k && Object.keys(k).length > 0;
+const keyFor = set => hasKey(S.keys[set]) ? S.keys[set] : (S.keys.default || {});   // সেটের নিজস্ব উত্তরমালা না থাকলে ডিফল্ট
+const keyInfo = () => { const p = Object.entries(S.keys).filter(([, k]) => hasKey(k)).map(([s, k]) => `${s === 'default' ? 'ডিফল্ট' : 'সেট ' + SET_BN[s] + ' (' + s + ')'}: ${Object.keys(k).length} টি`); $('keyinfo').textContent = p.length ? '✅ সংরক্ষিত — ' + p.join(' · ') : ''; };
+const keyTxtLoad = () => $('keytxt').value = S.keytxts[$('keyset').value] || '';
+const keyPersist = () => { localStorage.setItem('keys', JSON.stringify(S.keys)); localStorage.setItem('keytxts', JSON.stringify(S.keytxts)); };
+$('keyset').onchange = keyTxtLoad; keyTxtLoad();
 keyInfo();
 
 /* ---- সেটিংস ---- */
@@ -16,11 +21,11 @@ for (const k of ['mode', 'gkey', 'gmodel', 'mark', 'neg', 'minfill']) { $(k).val
 $('auto').checked = S.cfg.auto; $('auto').onchange = () => { S.cfg.auto = $('auto').checked; saveCfg(); };
 
 /* ---- সঠিক উত্তর ---- */
-$('keysave').onclick = () => { S.key = OMR.parseKey($('keytxt').value); localStorage.key = JSON.stringify(S.key); localStorage.keytxt = $('keytxt').value; keyInfo(); toast(Object.keys(S.key).length ? 'সংরক্ষিত ✅' : 'কোনো উত্তর পাওয়া যায়নি', 1); };
+$('keysave').onclick = () => { const ks = $('keyset').value; S.keys[ks] = OMR.parseKey($('keytxt').value); S.keytxts[ks] = $('keytxt').value; keyPersist(); keyInfo(); toast(hasKey(S.keys[ks]) ? 'সংরক্ষিত ✅' : 'কোনো উত্তর পাওয়া যায়নি', 1); };
 const readRows = async f => { const wb = XLSX.read(await f.arrayBuffer()); return XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: false, defval: '' }); };
 $('keyfile').onchange = async e => {
-  const f = e.target.files[0]; if (!f) return; S.key = OMR.parseKeyRows(await readRows(f)); localStorage.key = JSON.stringify(S.key);
-  $('keytxt').value = localStorage.keytxt = Object.entries(S.key).map(([q, a]) => `${q}-${a}`).join(', '); keyInfo();
+  const f = e.target.files[0]; if (!f) return; const ks = $('keyset').value; S.keys[ks] = OMR.parseKeyRows(await readRows(f));
+  $('keytxt').value = S.keytxts[ks] = Object.entries(S.keys[ks]).map(([q, a]) => `${q}-${a}`).join(', '); keyPersist(); keyInfo();
 };
 
 /* ---- শিক্ষার্থী তালিকা ---- */
@@ -80,13 +85,13 @@ $('imgfile').onchange = async e => {
 const layout = () => { const L = OMR.LAYOUT, w = OMR.TW, h = OMR.TH, dx = S.cfg.dx / w, dy = S.cfg.dy / h;  // সংরক্ষিত গ্রিড-সরানো অফসেট
   return { ...L, b1: L.b1.map(x => x + dx), b2: L.b2.map(x => x + dx), rx: L.rx.map(x => x + dx), ry: L.ry.map(y => y + dy), y0: L.y0 + dy, y1: L.y1 + dy }; };
 function applyEngines(r, loc) {  // লোকাল (+Gemini) মিলিয়ে চূড়ান্ত উত্তর বানায়
-  r.loc = loc; r.grid = loc.grid; r.baseGrid = loc.baseGrid; r.diam = loc.diam; r.manual = r.manual || {}; r.fa = loc.answers; r.fs = loc.status; r.review = [];
+  r.loc = loc; if (!r.setEdited) r.set = loc.set || null; r.grid = loc.grid; r.baseGrid = loc.baseGrid; r.diam = loc.diam; r.manual = r.manual || {}; r.fa = loc.answers; r.fs = loc.status; r.review = [];
   if (r.ga) { if (S.cfg.mode === 'gemini') { r.fa = r.ga.answers; r.fs = r.ga.status; } else { const m = OMR.merge(loc.answers, loc.status, r.ga.answers, r.ga.status); r.fa = m.fa; r.fs = m.fs; r.review = m.review; } }
   r.final = {}; for (const q in r.fa) r.final[q] = r.manual[q] ?? (r.fa[q] || (r.fs[q] === 'MULTIPLE' ? 'MULTI' : '-'));
 }
 async function process(canvas) {
   if (!cvReady) return toast('OpenCV এখনো লোড হচ্ছে, একটু অপেক্ষা করুন…');
-  if (!Object.keys(S.key).length) { toast('আগে "উত্তর" ট্যাবে সঠিক উত্তর দিন'); return show('key'); }
+  if (!Object.values(S.keys).some(hasKey)) { toast('আগে "উত্তর" ট্যাবে সঠিক উত্তর দিন'); return show('key'); }
   if (busy) return; busy = true; toast('প্রসেসিং চলছে…');
   try {
     const src = cv.imread(canvas), { mat, found } = OMR.autoScan(src); src.delete();
@@ -115,17 +120,20 @@ function redetect() {  // গ্রিড সরানোর পর আবার
 /* ---- ফলাফল রেন্ডার ---- */
 function render(full, shift, tmpAdj) {
   const r = S.r; if (!r) return; $('resempty').hidden = true; $('resbody').hidden = false;
-  const { rows, sum } = OMR.evaluate(r.final, S.key, S.cfg.mark, S.cfg.neg); r.rows = rows; r.sum = sum;
+  const KEY = keyFor(r.set), { rows, sum } = OMR.evaluate(r.final, KEY, S.cfg.mark, S.cfg.neg); r.rows = rows; r.sum = sum;
   $('s-m').textContent = `${sum['প্রাপ্ত নম্বর']}/${sum['পূর্ণমান']}`; $('s-ok').textContent = sum['সঠিক']; $('s-bad').textContent = sum['ভুল']; $('s-bl').textContent = sum['ফাঁকা'];
   const c = $('sheet'); c.width = r.sheet.width; c.height = r.sheet.height; const x = c.getContext('2d'); x.drawImage(r.sheet, 0, 0);
   const GG = tmpAdj ? OMR.applyAdj(r.baseGrid, tmpAdj) : r.grid, tx = shift ? shift.tx : 0, ty = shift ? shift.ty : 0, R = r.diam * .45, ring = (q, i, col, lw) => { x.strokeStyle = col; x.lineWidth = lw; x.beginPath(); x.arc(GG[q][i][0] + tx, GG[q][i][1] + ty, R, 0, 7); x.stroke(); };
   for (const q in r.grid) {
     if (S.mode !== 'tap') for (let i = 0; i < 4; i++) ring(q, i, 'rgba(59,130,246,.9)', 3);  // সারিবদ্ধতা দেখার গাইড
-    const k = S.key[q], f = r.final[q];
+    const k = KEY[q], f = r.final[q];
     if (OMR.OPT.includes(k)) ring(q, OMR.OPT.indexOf(k), '#16a34a', 6);
     if (OMR.OPT.includes(f) && f !== k) ring(q, OMR.OPT.indexOf(f), '#dc2626', 6);
     else if (f === k && OMR.OPT.includes(f)) ring(q, OMR.OPT.indexOf(f), '#16a34a', 10);
   }
+  $('i-set').value = r.set || '-';
+  { const used = hasKey(S.keys[r.set]) ? 'সেট ' + SET_BN[r.set] + '-এর উত্তরমালা' : 'ডিফল্ট উত্তরমালা', st = r.loc.setStatus;
+    $('sethint').textContent = r.setEdited ? `হাতে বাছা — ${used} ব্যবহৃত` : st === 'OK' ? `শিট থেকে পড়া: ${SET_BN[r.set]} (${r.set}) — ${used} ব্যবহৃত` : st === 'MULTIPLE' ? 'একাধিক সেট ভরাট — হাতে বাছুন' : `সেট কোড ভরাট নেই — ${used} ব্যবহৃত`; }
   $('tbl').innerHTML = '<tr><th>#</th><th>উত্তর</th><th>সঠিক</th><th>ফল</th></tr>' + rows.map(([q, s, k, res]) =>
     `<tr class="${r.review.includes(q) ? 'rev' : ''}"><td>${q}</td><td><select data-q="${q}">${['A', 'B', 'C', 'D', '-', 'MULTI'].map(o => `<option ${o === s ? 'selected' : ''}>${o}</option>`).join('')}</select></td><td>${k}</td><td class="${res.split(' ')[0]}">${res}</td></tr>`).join('');
   $('tbl').querySelectorAll('select').forEach(s => s.onchange = () => { r.final[s.dataset.q] = r.manual[s.dataset.q] = s.value; render(); });
@@ -152,6 +160,7 @@ const HINT = {
 };
 const setMode = m => { S.mode = m; document.querySelectorAll('#modes [data-m]').forEach(b => b.className = b.dataset.m === m ? '' : 'sec'); cvs.style.touchAction = m === 'tap' ? 'pan-y' : 'none'; $('canhint').textContent = HINT[m]; if (S.r) render(); };
 document.querySelectorAll('#modes [data-m]').forEach(b => b.onclick = () => setMode(b.dataset.m)); setMode('tap');
+$('i-set').onchange = () => { const r = S.r; if (!r) return; r.set = $('i-set').value === '-' ? null : $('i-set').value; r.setEdited = true; render(); };
 $('resetgrid').onclick = () => { S.cfg.dx = S.cfg.dy = 0; saveCfg(); if (S.r) { S.r.adj = null; redetect(); toast('গ্রিড রিসেট হয়েছে', 1); } };
 const k = () => cvs.width / cvs.getBoundingClientRect().width;
 const cloneAdj = a => JSON.parse(JSON.stringify(a || { ends: {}, rows: {}, bubbles: {} }));
@@ -197,17 +206,17 @@ const saveBatch = () => localStorage.batch = JSON.stringify(S.batch);
 const sortedBatch = () => [...S.batch].sort((a, b) => String(a.roll).localeCompare(String(b.roll), 'en', { numeric: true }));
 const sheetTitle = () => $('ptitle').value.trim() || 'ফলাফল সীট';
 function batchRender() {
-  const list = sortedBatch(), tot = Math.max(0, ...S.batch.map(x => x.total || 0));
+  const list = sortedBatch(), tot = Math.max(0, ...S.batch.map(x => x.total || 0)), hs = S.batch.some(x => x.set);
   $('bcnt').textContent = S.batch.length ? ` (${S.batch.length})` : ''; $('bempty').hidden = !!list.length; $('ptbl').hidden = !list.length;
   $('phead').textContent = sheetTitle();
   $('pmeta').textContent = `তারিখ: ${new Date().toLocaleDateString('bn-BD')}${tot ? ' · পূর্ণমান: ' + tot : ''} · মোট শিক্ষার্থী: ${list.length}`;
-  $('ptbl').innerHTML = '<tr><th>ক্রম</th><th>নাম</th><th>শ্রেণি</th><th>রোল</th><th>গ্রুপ</th><th>প্রাপ্ত নম্বর</th><th class="noprint"></th></tr>' +
-    list.map((x, i) => `<tr><td>${i + 1}</td><td class="l">${esc(x.name)}</td><td>${esc(x.class)}</td><td>${esc(x.roll)}</td><td>${esc(x.group)}</td><td><b>${x.marks}</b></td><td class="noprint"><button class="sec" data-del="${S.batch.indexOf(x)}">✕</button></td></tr>`).join('');
+  $('ptbl').innerHTML = '<tr><th>ক্রম</th><th>নাম</th><th>শ্রেণি</th><th>রোল</th><th>গ্রুপ</th>' + (hs ? '<th>সেট</th>' : '') + '<th>প্রাপ্ত নম্বর</th><th class="noprint"></th></tr>' +
+    list.map((x, i) => `<tr><td>${i + 1}</td><td class="l">${esc(x.name)}</td><td>${esc(x.class)}</td><td>${esc(x.roll)}</td><td>${esc(x.group)}</td>${hs ? `<td>${x.set ? SET_BN[x.set] : ''}</td>` : ''}<td><b>${x.marks}</b></td><td class="noprint"><button class="sec" data-del="${S.batch.indexOf(x)}">✕</button></td></tr>`).join('');
   $('ptbl').querySelectorAll('[data-del]').forEach(b => b.onclick = () => { S.batch.splice(+b.dataset.del, 1); saveBatch(); batchRender(); });
 }
 $('addres').onclick = () => {
   const r = S.r; if (!r) return;
-  const e = { name: $('i-name').value.trim(), class: $('i-class').value.trim(), roll: $('i-roll').value.trim(), group: $('i-dept').value.trim(), marks: r.sum['প্রাপ্ত নম্বর'], total: r.sum['পূর্ণমান'] };
+  const e = { name: $('i-name').value.trim(), class: $('i-class').value.trim(), roll: $('i-roll').value.trim(), group: $('i-dept').value.trim(), set: r.set || '', marks: r.sum['প্রাপ্ত নম্বর'], total: r.sum['পূর্ণমান'] };
   if (!e.roll && !e.name) return toast('আগে রোল বা নাম দিন');
   const i = e.roll ? S.batch.findIndex(x => OMR.rollKey(x.roll) === OMR.rollKey(e.roll)) : -1;
   if (i >= 0) S.batch[i] = e; else S.batch.push(e);
@@ -220,7 +229,7 @@ $('bprint').onclick = () => { if (!S.batch.length) return toast('কোনো �
 $('bclr').onclick = () => { if (S.batch.length && confirm('সব জমাকৃত ফলাফল মুছে ফেলবেন?')) { S.batch = []; saveBatch(); batchRender(); } };
 $('bxl').onclick = () => {
   if (!S.batch.length) return toast('কোনো ফলাফল জমা নেই');
-  const aoa = [[sheetTitle()], [], ['ক্রম', 'নাম', 'শ্রেণি', 'রোল', 'গ্রুপ', 'প্রাপ্ত নম্বর'], ...sortedBatch().map((x, i) => [i + 1, x.name, x.class, x.roll, x.group, x.marks]), [], ['ManHa IT']];
+  const hs = S.batch.some(x => x.set), aoa = [[sheetTitle()], [], ['ক্রম', 'নাম', 'শ্রেণি', 'রোল', 'গ্রুপ', ...(hs ? ['সেট'] : []), 'প্রাপ্ত নম্বর'], ...sortedBatch().map((x, i) => [i + 1, x.name, x.class, x.roll, x.group, ...(hs ? [x.set ? SET_BN[x.set] : ''] : []), x.marks]), [], ['ManHa IT']];
   const ws = XLSX.utils.aoa_to_sheet(aoa); ws['!cols'] = [{ wch: 7 }, { wch: 26 }, { wch: 12 }, { wch: 12 }, { wch: 18 }, { wch: 14 }];
   const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'ফলাফল'); XLSX.writeFile(wb, 'result_sheet.xlsx');
 };
@@ -229,7 +238,7 @@ batchRender();
 /* ---- Excel ---- */
 $('xl').onclick = () => {
   const r = S.r; if (!r) return;
-  const info = [['বিবরণ', 'মান'], ['নাম', $('i-name').value], ['শ্রেণি', $('i-class').value], ['রোল নং', $('i-roll').value], ['গ্রুপ', $('i-dept').value], ...Object.entries(r.sum)];
+  const info = [['বিবরণ', 'মান'], ['নাম', $('i-name').value], ['শ্রেণি', $('i-class').value], ['রোল নং', $('i-roll').value], ['গ্রুপ', $('i-dept').value], ['সেট', r.set ? SET_BN[r.set] + ' (' + r.set + ')' : ''], ...Object.entries(r.sum)];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(info), 'সারাংশ');
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['প্রশ্ন', 'শিক্ষার্থীর উত্তর', 'সঠিক উত্তর', 'ফলাফল'], ...r.rows]), 'বিস্তারিত');
