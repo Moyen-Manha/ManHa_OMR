@@ -21,6 +21,20 @@ const OMR = (() => {
     return key;
   }
 
+  /** Excel/CSV থেকে উত্তরমালা: হেডারে সেট কলাম (A/B/C/D, ক/খ/গ/ঘ, "সেট ক", "Set A", "ডিফল্ট") থাকলে সব সেট একসাথে;
+   *  না থাকলে প্রথম দুই কলাম (প্রশ্ন, উত্তর) → {single}। রিটার্ন: { multi, sets } */
+  function parseKeySets(rows) {
+    const label = c => { const t = String(c ?? '').trim().replace(/set|সেট|[\s:：.\-_()]/gi, ''); if (/^(default|ডিফল্ট|সব)$/i.test(t)) return 'default'; return normOpt(t); };
+    for (let i = 0; i < Math.min(rows.length, 6); i++) {
+      const cols = {}; (rows[i] || []).forEach((c, j) => { if (j >= 1) { const l = label(c); if (l && !(l in cols)) cols[l] = j; } });
+      if (Object.keys(cols).length >= 2) {
+        const sets = {}; Object.keys(cols).forEach(s => sets[s] = {});
+        rows.slice(i + 1).forEach(r => { const q = parseInt(enDigits(r[0])); if (!q) return; for (const s in cols) { const o = normOpt(r[cols[s]]); if (o) sets[s][q] = o; } });
+        return { multi: true, sets };
+      }
+    }
+    return { multi: false, sets: { single: parseKeyRows(rows) } };
+  }
   const rollKey = r => { const n = enDigits(r).replace(/\D/g, ''); return n ? String(parseInt(n, 10)) : ''; };
   function parseStudents(rows) {  // কলাম: নাম, শ্রেণি, রোল, গ্রুপ (হেডার থাকলে নাম দেখে, না থাকলে এই ক্রমে)
     const re = { name: /নাম|name/i, class: /শ্রেণি|শ্রেণী|class/i, roll: /রোল|roll/i, group: /গ্রুপ|বিভাগ|group|dept|section/i };
@@ -294,7 +308,7 @@ Return ONLY JSON: {"answers": {"1": "C", "2": null, ...}, "name": "", "class": "
     }
     return { answers, status, info: { name: d.name || '', class: d.class || '', roll: enDigits(d.roll || ''), department: d.department || '' } };
   }
-  const api = { applyAdj, rollKey, parseStudents, findStudent, TW, TH, OPT, LAYOUT, parseKey, parseKeyRows, findQuad, autoScan, detect, evaluate, merge, gemini };
+  const api = { parseKeySets, applyAdj, rollKey, parseStudents, findStudent, TW, TH, OPT, LAYOUT, parseKey, parseKeyRows, findQuad, autoScan, detect, evaluate, merge, gemini };
   if (typeof module !== 'undefined') module.exports = api;
   return api;
 })();
