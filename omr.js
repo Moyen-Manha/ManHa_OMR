@@ -2,6 +2,7 @@
 const OMR = (() => {
   const TW = 1600, TH = 2211, OPT = ['A', 'B', 'C', 'D'];
   const LAYOUT = { b1: [.141, .182, .222, .263], b2: [.355, .395, .436, .477], y0: .309, y1: .928, rows: 15,
+    setx: .897, sety: [.314, .339, .364, .389],
     rx: [.523, .557, .591, .625, .659, .693], ry: [.311, .330, .351, .371, .391, .411, .431, .451, .471, .490] };
   const BN = { 'ক': 'A', 'খ': 'B', 'গ': 'C', 'ঘ': 'D' };
   const enDigits = t => String(t).replace(/[০-৯]/g, d => '০১২৩৪৫৬৭৮৯'.indexOf(d));
@@ -147,11 +148,29 @@ const OMR = (() => {
       const rx0 = L.rx.map(v => kc.c[7] + (v - L.b2[3]) * W * sc), ry0 = Array.from({ length: 10 }, (_, i) => yr1 + i * pr);
       let roll = { xs: rx0, ys: ry0, r: (L.rx[1] - L.rx[0]) * W * sc * .3 };
       const R = hough(small, s, [.49 * W, yr1 - .6 * pr, .705 * W, yr1 + 9.6 * pr], mr * .55, mr * .95).filter(c => c.x > .49 * W && c.x < .705 * W && c.y > yr1 - .6 * pr);
-      if (R.length >= 20) {
-        const cx = kmeans(R.map(c => c.x), rx0), cy = kmeans(R.map(c => c.y), ry0), nx = rx0.map(() => 0); R.forEach(c => nx[cx.near(c.x)]++);
-        if (nx.every(n => n >= 3)) roll = { xs: cx.c, ys: cy.c, r: median(R.map(c => c.r)) * .8 };
+      if (R.length >= 12) {
+        // কলাম: যে কলামে ≥২ বৃত্ত পাওয়া গেছে সেটি নিজের অবস্থান নেয়, বাকিরা অন্যদের গড় সরণ অনুসরণ করে
+        const cx = kmeans(R.map(c => c.x), rx0), nx = rx0.map(() => 0); R.forEach(c => nx[cx.near(c.x)]++);
+        const offs = cx.c.map((v, i) => nx[i] >= 2 ? v - rx0[i] : null).filter(v => v !== null), off = offs.length ? median(offs) : 0;
+        const xs = rx0.map((v, i) => nx[i] >= 2 ? cx.c[i] : v + off);
+        // সারি: সব বৃত্তের y গ্রুপ করে সারির আসল দূরত্ব বের করা (শিট ভেদে ভিন্ন হয়); প্রথম সারি = উত্তরের প্রথম সারির উচ্চতা
+        const ysR = R.map(c => c.y).sort((p, q) => p - q), gr = [];
+        ysR.forEach(y => { const g = gr[gr.length - 1]; if (g && y - g.last < .4 * pr) { g.s += y; g.n++; g.last = y; } else gr.push({ s: y, n: 1, last: y }); });
+        const ce = gr.map(g => g.s / g.n); let ys = ry0;
+        if (ce.length >= 5) {
+          const d = ce.slice(1).map((v, i) => v - ce[i]).filter(v => v > .6 * pr && v < 1.4 * pr), pit = d.length ? median(d) : pr, k = Math.round((ce[0] - yr1) / pit);
+          ys = Array.from({ length: 10 }, (_, i) => ce[0] + (i - k) * pit);
+        }
+        roll = { xs, ys, r: median(R.map(c => c.r)) * .8 };
       }
-      return { G, diam: 2 * mr, roll };
+      // সেট কোড (ক/খ/গ/ঘ): রোল গ্রিডের ডানে; প্রথম বাবল = প্রথম সারির সমান উচ্চতা। ছাপা বৃত্ত থেকে মেলানো
+      const sx0 = roll.xs[5] + .204 * W * sc, sp0 = .0252 * H * sc; let set = { x: sx0, ys: [0, 1, 2, 3].map(i => yr1 + i * sp0), r: mr * .9 };
+      const SR = hough(small, s, [sx0 - .05 * W, yr1 - .6 * sp0, sx0 + .05 * W, yr1 + 4.3 * sp0], mr * .7, mr * 1.15).filter(c => Math.abs(c.x - sx0) < .045 * W);
+      if (SR.length >= 2) {
+        const x = median(SR.map(c => c.x)), ys = SR.map(c => c.y).sort((a, b) => a - b), d = ys.slice(1).map((v, i) => v - ys[i]).filter(v => v > .6 * sp0), pit = d.length ? Math.min(...d) : sp0;
+        const idx = ys.map(y => Math.max(0, Math.min(3, Math.round((y - yr1) / pit)))); if (new Set(idx).size >= 2) { const f = polyfit(idx, ys, 1); set = { x, ys: [0, 1, 2, 3].map(f), r: mr * .9 }; }
+      }
+      return { G, diam: 2 * mr, roll, set };
     } catch (e) { return null; } finally { small.delete(); }
   }
 
@@ -193,10 +212,11 @@ const OMR = (() => {
     // app.js থেকে আসা layout-এর অফসেট = ব্যবহারকারীর "গ্রিড সরান"; এটি অটো-ক্যালিব্রেশনের ওপর যোগ হয়
     const dx = o.layout ? (L.b1[0] - LAYOUT.b1[0]) * w : (o.shift ? o.shift.dx : 0), dy = o.layout ? (L.y0 - LAYOUT.y0) * h : (o.shift ? o.shift.dy : 0);
     const cal = o.noAuto ? null : calibrate(sheet); let G, diam, rp;
-    if (cal) { G = cal.G; diam = cal.diam; rp = cal.roll; }
-    else { G = grid(w, h, LAYOUT); diam = (L.b1[1] - L.b1[0]) * w * .85; rp = { xs: LAYOUT.rx.map(x => x * w), ys: LAYOUT.ry.map(y => y * h), r: (LAYOUT.rx[1] - LAYOUT.rx[0]) * w * .3 }; }
+    let sp; if (cal) { G = cal.G; diam = cal.diam; rp = cal.roll; sp = cal.set; }
+    else { G = grid(w, h, LAYOUT); diam = (L.b1[1] - L.b1[0]) * w * .85; sp = { x: LAYOUT.setx * w, ys: LAYOUT.sety.map(y => y * h), r: diam * .45 }; rp = { xs: LAYOUT.rx.map(x => x * w), ys: LAYOUT.ry.map(y => y * h), r: (LAYOUT.rx[1] - LAYOUT.rx[0]) * w * .3 }; }
     for (const q in G) G[q] = G[q].map(([x, y]) => [x + dx, y + dy]);
     rp = { xs: rp.xs.map(x => x + dx), ys: rp.ys.map(y => y + dy), r: rp.r };
+    sp = { x: sp.x + dx, ys: sp.ys.map(y => y + dy), r: sp.r };
     const baseG = G; G = applyAdj(G, o.adj);
     const A = Math.PI * (diam / 2) ** 2, tol = diam * .75;
     const det = {}; Object.keys(G).forEach(q => det[q] = []);
@@ -217,10 +237,13 @@ const OMR = (() => {
       status[q] = m.length === 1 ? 'OK' : m.length ? 'MULTIPLE' : 'BLANK';
     }
     let roll = '';  // রোল নম্বরের বাবল গ্রিড
-    rp.xs.forEach(x => { const f = rp.ys.map(y => fill(bin, x, y, rp.r)), mx = Math.max(...f), i = f.indexOf(mx);
+    const rollFills = [];
+    rp.xs.forEach(x => { const f = rp.ys.map(y => fill(bin, x, y, rp.r)), mx = Math.max(...f), i = f.indexOf(mx); rollFills.push(f);
       roll += mx >= .45 && f.filter(v => v >= .45).length === 1 ? i : '?'; });
+    const sf = sp.ys.map(y => fill(bin, sp.x, y, diam * .4)), sm = sf.map((v, i) => v >= .45 ? i : -1).filter(i => i >= 0);  // সেট কোড
+    const set = sm.length === 1 ? OPT[sm[0]] : null, setStatus = sm.length === 1 ? 'OK' : sm.length ? 'MULTIPLE' : 'BLANK';
     cs.delete(); hi.delete(); g.delete(); bin.delete();
-    return { answers, status, grid: G, baseGrid: baseG, diam, roll, calibrated: !!cal };
+    return { answers, status, grid: G, baseGrid: baseG, diam, roll, set, setStatus, rollFills, setPts: sp, rollPts: rp, calibrated: !!cal };
   }
 
   /* ---------- মূল্যায়ন ও মার্জ ---------- */
