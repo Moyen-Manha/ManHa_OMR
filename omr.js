@@ -20,34 +20,6 @@ const OMR = (() => {
     return key;
   }
 
-  /* ---------- একাধিক সেট (ক/খ/গ/ঘ) এক Excel-এ ---------- */
-  const normSet = s => normOpt(String(s == null ? '' : s).replace(/সেট|কোড|set|code|[\s_\-:]/gi, ''));
-  // sheets = [{name, rows}] → { A:{1:'C',…}, B:{…}, C:{…}, D:{…} } (যে সেট পাওয়া গেছে শুধু সেগুলো)
-  function parseKeySets(sheets) {
-    const res = {}, put = (set, key) => { if (set && Object.keys(key).length) res[set] = Object.assign(res[set] || {}, key); };
-    for (const { name, rows } of sheets) {
-      let hi = -1, cols = {};
-      for (let i = 0; i < Math.min(rows.length, 8) && hi < 0; i++) {   // হেডার সারি: কমপক্ষে ২টি সেট-কলাম
-        const m = {}; (rows[i] || []).forEach((c, j) => { const o = normSet(c); if (o && !(o in m)) m[o] = j; });
-        if (Object.keys(m).length >= 2 && !parseInt(enDigits((rows[i] || [])[0]))) { hi = i; cols = m; }
-      }
-      if (hi >= 0) {                                                    // একটি শিটে একাধিক সেট-কলাম
-        const qc = Math.max(0, Math.min(...Object.values(cols)) - 1);
-        for (const set in cols) { const key = {};
-          rows.slice(hi + 1).forEach(r => { const q = parseInt(enDigits(r[qc])), o = normOpt(r[cols[set]]); if (q && o) key[q] = o; });
-          put(set, key); }
-        continue;
-      }
-      const sn = normSet(name);
-      if (sn) { put(sn, parseKeyRows(rows)); continue; }               // শিটের নামই সেট (ক / Set A …)
-      const wide = rows.some(r => r.length >= 5 && parseInt(enDigits(r[0])) && normOpt(r[1]) && normOpt(r[4]));
-      if (wide) ['A', 'B', 'C', 'D'].forEach((o, j) => { const key = {};   // হেডার ছাড়া: প্রশ্ন | ক | খ | গ | ঘ
-        rows.forEach(r => { const q = parseInt(enDigits(r[0])), a = normOpt(r[j + 1]); if (q && a) key[q] = a; }); put(o, key); });
-      else put('A', parseKeyRows(rows));                                // শুধু প্রশ্ন|উত্তর → ক সেট
-    }
-    return res;
-  }
-
   const rollKey = r => { const n = enDigits(r).replace(/\D/g, ''); return n ? String(parseInt(n, 10)) : ''; };
   function parseStudents(rows) {  // কলাম: নাম, শ্রেণি, রোল, গ্রুপ (হেডার থাকলে নাম দেখে, না থাকলে এই ক্রমে)
     const re = { name: /নাম|name/i, class: /শ্রেণি|শ্রেণী|class/i, roll: /রোল|roll/i, group: /গ্রুপ|বিভাগ|group|dept|section/i };
@@ -105,9 +77,20 @@ const OMR = (() => {
     small.delete(); g.delete(); k.delete(); return quad;
   }
   /** কাগজ সোজা করে TW×TH Mat ফেরত দেয়। রিটার্ন {mat, found} */
+  function fullFrame(src, quad) {  // স্ক্যান করা পেজ পুরো ছবি জুড়ে থাকলে ভুল কোণা ধরে বাঁকিয়ে ফেলা ঠেকানো
+    const sc = 400 / Math.max(src.cols, src.rows), sm = new cv.Mat(), g = new cv.Mat(), b = new cv.Mat();
+    cv.resize(src, sm, new cv.Size(Math.round(src.cols * sc), Math.round(src.rows * sc)), 0, 0, cv.INTER_AREA); cv.cvtColor(sm, g, cv.COLOR_RGBA2GRAY);
+    const th = cv.threshold(g, b, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU), W = g.cols, H = g.rows, m = Math.max(3, Math.round(.025 * Math.min(W, H))); let on = 0, n = 0;
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (x < m || y < m || x >= W - m || y >= H - m) { n++; if (g.data[y * W + x] > th) on++; }
+    sm.delete(); g.delete(); b.delete();
+    const area = Math.abs(quad.reduce((a, p, i) => { const q = quad[(i + 1) % 4]; return a + p.x * q.y - q.x * p.y; }, 0)) / 2 / (src.cols * src.rows);
+    const W0 = src.cols, H0 = src.rows, d = .04 * Math.hypot(W0, H0), cn = [[0, 0], [W0, 0], [W0, H0], [0, H0]];
+    const near = quad.filter((p, i) => Math.hypot(p.x - cn[i][0], p.y - cn[i][1]) < d).length;  // ৪ কোণার ≥৩টি ছবির কোণায় = পেজ ফ্রেম জুড়ে
+    return (on / n > .85 && area > .75) || (near >= 3 && area > .7);
+  }
   function autoScan(src) {
     let quad = findQuad(src), dst = new cv.Mat();
-    if (!quad) { cv.resize(src, dst, new cv.Size(TW, TH), 0, 0, cv.INTER_AREA); return { mat: dst, found: false }; }
+    if (!quad || fullFrame(src, quad)) { cv.resize(src, dst, new cv.Size(TW, TH), 0, 0, cv.INTER_AREA); return { mat: dst, found: !!quad }; }
     const [tl, tr, br, bl] = quad;
     if (Math.hypot(tr.x - tl.x, tr.y - tl.y) > Math.hypot(bl.x - tl.x, bl.y - tl.y)) quad = [bl, tl, tr, br];
     const s = cv.matFromArray(4, 1, cv.CV_32FC2, quad.flatMap(p => [p.x, p.y]));
@@ -115,6 +98,61 @@ const OMR = (() => {
     const M = cv.getPerspectiveTransform(s, d);
     cv.warpPerspective(src, dst, M, new cv.Size(TW, TH), cv.INTER_CUBIC, cv.BORDER_CONSTANT, new cv.Scalar());
     s.delete(); d.delete(); M.delete(); return { mat: dst, found: true };
+  }
+
+  /* ---------- ছাপা বৃত্ত থেকে গ্রিড নিজে মেলানো (স্কেল/সরানো/বাঁকা পেজ সামলায়) ---------- */
+  const median = a => { const b = [...a].sort((x, y) => x - y); return b[Math.floor(b.length / 2)]; };
+  function kmeans(v, c) {
+    c = [...c]; const near = x => { let b = 0; for (let i = 1; i < c.length; i++) if (Math.abs(x - c[i]) < Math.abs(x - c[b])) b = i; return b; };
+    for (let it = 0; it < 40; it++) {
+      const s = c.map(() => 0), n = c.map(() => 0); v.forEach(x => { const b = near(x); s[b] += x; n[b]++; });
+      const nc = c.map((x, i) => n[i] ? s[i] / n[i] : x), done = nc.every((x, i) => Math.abs(x - c[i]) < .01); c = nc; if (done) break;
+    }
+    return { c, near };
+  }
+  function polyfit(xs, ys, deg) {
+    const n = deg + 1, A = Array.from({ length: n }, () => new Array(n + 1).fill(0));
+    xs.forEach((x, k) => { for (let i = 0; i < n; i++) { for (let j = 0; j < n; j++) A[i][j] += x ** (i + j); A[i][n] += ys[k] * x ** i; } });
+    for (let i = 0; i < n; i++) { let p = i; for (let r = i + 1; r < n; r++) if (Math.abs(A[r][i]) > Math.abs(A[p][i])) p = r; [A[i], A[p]] = [A[p], A[i]];
+      for (let r = 0; r < n; r++) if (r !== i) { const f = A[r][i] / (A[i][i] || 1e-9); for (let c = i; c <= n; c++) A[r][c] -= f * A[i][c]; } }
+    const co = A.map((r, i) => r[n] / (r[i] || 1e-9)); return x => co.reduce((a, c, i) => a + c * x ** i, 0);
+  }
+  function hough(gray, s, box, rmin, rmax) {  // box/ব্যাসার্ধ শিট-পিক্সেলে; gray = s গুণ ছোট ছবি
+    const x0 = Math.max(0, Math.round(box[0] * s)), y0 = Math.max(0, Math.round(box[1] * s)), x1 = Math.min(gray.cols, Math.round(box[2] * s)), y1 = Math.min(gray.rows, Math.round(box[3] * s));
+    if (x1 - x0 < 20 || y1 - y0 < 20) return [];
+    const roi = gray.roi(new cv.Rect(x0, y0, x1 - x0, y1 - y0)).clone(), out = new cv.Mat();
+    cv.HoughCircles(roi, out, cv.HOUGH_GRADIENT, 1, rmin * s * 1.7, 100, 18, Math.round(rmin * s), Math.round(rmax * s));
+    const r = []; for (let i = 0; i < out.cols; i++) r.push({ x: (out.data32F[3 * i] + x0) / s, y: (out.data32F[3 * i + 1] + y0) / s, r: out.data32F[3 * i + 2] / s });
+    roi.delete(); out.delete(); return r;
+  }
+  function calibrate(sheet) {
+    const W = sheet.cols, H = sheet.rows, s = 1000 / Math.max(W, H), L = LAYOUT, small = new cv.Mat(), g = new cv.Mat();
+    cv.cvtColor(sheet, g, cv.COLOR_RGBA2GRAY); cv.resize(g, small, new cv.Size(Math.round(W * s), Math.round(H * s)), 0, 0, cv.INTER_AREA); cv.GaussianBlur(small, small, new cv.Size(5, 5), 0); g.delete();
+    try {
+      const r0 = .0145 * W; let A = hough(small, s, [.03 * W, .24 * H, .488 * W, .97 * H], r0 * .75, r0 * 1.3);
+      if (A.length < 50) return null;
+      const mr = median(A.map(c => c.r)); A = A.filter(c => Math.abs(c.r - mr) < mr * .25); if (A.length < 50) return null;
+      const xs = A.map(c => c.x), ys = A.map(c => c.y), x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys), nom = [...L.b1, ...L.b2];
+      const kc = kmeans(xs, nom.map(v => x0 + (v - nom[0]) / (nom[7] - nom[0]) * (x1 - x0))), kr = kmeans(ys, Array.from({ length: L.rows }, (_, i) => y0 + (y1 - y0) * i / (L.rows - 1)));
+      const cnt = kc.c.map(() => 0); xs.forEach(x => cnt[kc.near(x)]++); if (cnt.some(n => n < 6)) return null;
+      const per = kc.c.map(() => ({ r: [], x: [], y: [] }));
+      A.forEach(c => { const p = per[kc.near(c.x)], r = kr.near(c.y); p.r.push(r); p.x.push(c.x); p.y.push(c.y); });
+      const G = {};
+      per.forEach((p, ci) => {
+        const fx = p.r.length >= 3 ? polyfit(p.r, p.x, 1) : () => kc.c[ci], fy = p.r.length >= 6 ? polyfit(p.r, p.y, 2) : r => kr.c[r];
+        for (let r = 0; r < L.rows; r++) { const q = (ci < 4 ? 0 : L.rows) + r + 1; (G[q] = G[q] || [])[ci % 4] = [fx(r), fy(r)]; }
+      });
+      // রোল নম্বর গ্রিড: প্রথম সারি = উত্তরের প্রথম সারির সমান উচ্চতা; বাকিটা নমিনাল লেআউট স্কেল করে, তারপর ছাপা বৃত্ত দিয়ে মেলানো
+      const sc = (kc.c[7] - kc.c[0]) / (W * (nom[7] - nom[0])), yr1 = G[1].reduce((a, p) => a + p[1], 0) / 4, pr = (L.ry[9] - L.ry[0]) / 9 * H * sc;
+      const rx0 = L.rx.map(v => kc.c[7] + (v - L.b2[3]) * W * sc), ry0 = Array.from({ length: 10 }, (_, i) => yr1 + i * pr);
+      let roll = { xs: rx0, ys: ry0, r: (L.rx[1] - L.rx[0]) * W * sc * .3 };
+      const R = hough(small, s, [.49 * W, yr1 - .6 * pr, .705 * W, yr1 + 9.6 * pr], mr * .55, mr * .95).filter(c => c.x > .49 * W && c.x < .705 * W && c.y > yr1 - .6 * pr);
+      if (R.length >= 20) {
+        const cx = kmeans(R.map(c => c.x), rx0), cy = kmeans(R.map(c => c.y), ry0), nx = rx0.map(() => 0); R.forEach(c => nx[cx.near(c.x)]++);
+        if (nx.every(n => n >= 3)) roll = { xs: cx.c, ys: cy.c, r: median(R.map(c => c.r)) * .8 };
+      }
+      return { G, diam: 2 * mr, roll };
+    } catch (e) { return null; } finally { small.delete(); }
   }
 
   /* ---------- বাবল শনাক্তকরণ ---------- */
@@ -141,7 +179,14 @@ const OMR = (() => {
     const t = cv.threshold(g, bin, 0, 255, cv.THRESH_BINARY_INV + cv.THRESH_OTSU);
     cv.threshold(g, bin, Math.min(t, 140), 255, cv.THRESH_BINARY_INV);
     cv.morphologyEx(bin, bin, cv.MORPH_OPEN, cv.Mat.ones(3, 3, cv.CV_8U));
-    const G = grid(w, h, L), diam = (L.b1[1] - L.b1[0]) * w * .85, A = Math.PI * (diam / 2) ** 2, tol = diam * .75;
+    // app.js থেকে আসা layout-এর অফসেট = ব্যবহারকারীর "গ্রিড সরান"; এটি অটো-ক্যালিব্রেশনের ওপর যোগ হয়
+    const dx = o.layout ? (L.b1[0] - LAYOUT.b1[0]) * w : (o.shift ? o.shift.dx : 0), dy = o.layout ? (L.y0 - LAYOUT.y0) * h : (o.shift ? o.shift.dy : 0);
+    const cal = o.noAuto ? null : calibrate(sheet); let G, diam, rp;
+    if (cal) { G = cal.G; diam = cal.diam; rp = cal.roll; }
+    else { G = grid(w, h, LAYOUT); diam = (L.b1[1] - L.b1[0]) * w * .85; rp = { xs: LAYOUT.rx.map(x => x * w), ys: LAYOUT.ry.map(y => y * h), r: (LAYOUT.rx[1] - LAYOUT.rx[0]) * w * .3 }; }
+    for (const q in G) G[q] = G[q].map(([x, y]) => [x + dx, y + dy]);
+    rp = { xs: rp.xs.map(x => x + dx), ys: rp.ys.map(y => y + dy), r: rp.r };
+    const A = Math.PI * (diam / 2) ** 2, tol = diam * .75;
     const det = {}; Object.keys(G).forEach(q => det[q] = []);
     const cs = new cv.MatVector(), hi = new cv.Mat(); cv.findContours(bin, cs, hi, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
     for (let i = 0; i < cs.size(); i++) {
@@ -159,11 +204,11 @@ const OMR = (() => {
       const m = det[q]; answers[q] = m.length === 1 ? OPT[m[0]] : null;
       status[q] = m.length === 1 ? 'OK' : m.length ? 'MULTIPLE' : 'BLANK';
     }
-    const rr = (L.rx[1] - L.rx[0]) * w * .3; let roll = '';  // রোল নম্বরের বাবল গ্রিড
-    L.rx.forEach(x => { const f = L.ry.map(y => fill(bin, x * w, y * h, rr)), mx = Math.max(...f), i = f.indexOf(mx);
+    let roll = '';  // রোল নম্বরের বাবল গ্রিড
+    rp.xs.forEach(x => { const f = rp.ys.map(y => fill(bin, x, y, rp.r)), mx = Math.max(...f), i = f.indexOf(mx);
       roll += mx >= .45 && f.filter(v => v >= .45).length === 1 ? i : '?'; });
     cs.delete(); hi.delete(); g.delete(); bin.delete();
-    return { answers, status, grid: G, diam, roll };
+    return { answers, status, grid: G, diam, roll, calibrated: !!cal };
   }
 
   /* ---------- মূল্যায়ন ও মার্জ ---------- */
@@ -214,7 +259,7 @@ Return ONLY JSON: {"answers": {"1": "C", "2": null, ...}, "name": "", "class": "
     }
     return { answers, status, info: { name: d.name || '', class: d.class || '', roll: enDigits(d.roll || ''), department: d.department || '' } };
   }
-  const api = { rollKey, parseStudents, findStudent, TW, TH, OPT, LAYOUT, parseKey, parseKeyRows, parseKeySets, normSet, findQuad, autoScan, detect, evaluate, merge, gemini };
+  const api = { rollKey, parseStudents, findStudent, TW, TH, OPT, LAYOUT, parseKey, parseKeyRows, findQuad, autoScan, detect, evaluate, merge, gemini };
   if (typeof module !== 'undefined') module.exports = api;
   return api;
 })();
